@@ -21,7 +21,7 @@
 
 set -e
 
-REPO_URL="https://github.com/ramparte/amplifier-distro"
+REPO_URL="https://github.com/microsoft/amplifier-distro"
 AMPLIFIER_URL="https://github.com/microsoft/amplifier"
 TUI_URL="https://github.com/ramparte/amplifier-tui"
 
@@ -101,7 +101,7 @@ install_standalone() {
     echo ""
 
     echo "[1/3] Installing amplifier-distro..."
-    uv tool install "git+${REPO_URL}"
+    uv tool install --force "git+${REPO_URL}@main#subdirectory=distro-server"
 
     echo ""
     if command -v amplifier &>/dev/null; then
@@ -138,13 +138,6 @@ fi
 echo ""
 echo "=== Install complete ==="
 echo ""
-echo "Commands available:"
-echo "  amp-distro          Distro management CLI"
-echo "  amp-distro-server   Web server (localhost:8400)"
-echo "  amplifier           Amplifier CLI agent"
-echo "  amplifier-tui       Terminal UI"
-echo ""
-echo "Quick start:"
-echo "  amp-distro init       # first-time setup"
-echo "  amp-distro-server     # start web UI"
-echo ""
+echo "To get started:"
+echo "  run 'amp-distro serve'"
+echo "  Browse to http://localhost:8400"
