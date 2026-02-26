@@ -598,7 +598,7 @@ class FoundationBackend:
         a transcript matching *session_id*.  Returns the parsed message list.
         Raises :class:`FileNotFoundError` if no transcript is found.
         """
-        projects_dir = Path("~/.amplifier/projects").expanduser()
+        projects_dir = Path(AMPLIFIER_HOME).expanduser() / PROJECTS_DIR
         if not projects_dir.exists():
             raise FileNotFoundError(f"Projects directory not found: {projects_dir}")
 

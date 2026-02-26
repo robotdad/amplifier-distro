@@ -56,7 +56,11 @@ class AmplifierDiscovery:
     scanning ~/.amplifier/projects/ for session directories.
     """
 
-    def __init__(self, amplifier_home: str = "~/.amplifier") -> None:
+    def __init__(self, amplifier_home: str | None = None) -> None:
+        if amplifier_home is None:
+            from amplifier_distro.conventions import AMPLIFIER_HOME
+
+            amplifier_home = AMPLIFIER_HOME
         self._home = Path(amplifier_home).expanduser()
         self._projects_dir = self._home / "projects"
 

@@ -368,11 +368,11 @@ def _run_foreground(
     setup_logging()
     logger = logging.getLogger("amplifier_distro.server")
 
-    # Ensure DISTRO_HOME exists before anything tries to use it
+    # Ensure home directories exist before anything tries to use them
     from amplifier_distro import conventions
 
-    distro_home = Path(conventions.DISTRO_HOME).expanduser()
-    distro_home.mkdir(parents=True, exist_ok=True)
+    Path(conventions.AMPLIFIER_HOME).expanduser().mkdir(parents=True, exist_ok=True)
+    Path(conventions.DISTRO_HOME).expanduser().mkdir(parents=True, exist_ok=True)
 
     # Stub mode: activate before anything else reads AMPLIFIER_HOME
     if stub:
@@ -502,6 +502,7 @@ def _create_app():
 
     from amplifier_distro import conventions
 
+    Path(conventions.AMPLIFIER_HOME).expanduser().mkdir(parents=True, exist_ok=True)
     Path(conventions.DISTRO_HOME).expanduser().mkdir(parents=True, exist_ok=True)
 
     export_keys()
