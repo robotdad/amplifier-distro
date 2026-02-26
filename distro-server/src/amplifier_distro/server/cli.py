@@ -368,6 +368,12 @@ def _run_foreground(
     setup_logging()
     logger = logging.getLogger("amplifier_distro.server")
 
+    # Ensure DISTRO_HOME exists before anything tries to use it
+    from amplifier_distro import conventions
+
+    distro_home = Path(conventions.DISTRO_HOME).expanduser()
+    distro_home.mkdir(parents=True, exist_ok=True)
+
     # Stub mode: activate before anything else reads AMPLIFIER_HOME
     if stub:
         from amplifier_distro.server.stub import activate_stub_mode
@@ -493,6 +499,11 @@ def _create_app():
     dev_mode = os.environ.get("_AMPLIFIER_DEV_MODE") == "1"
 
     setup_logging()
+
+    from amplifier_distro import conventions
+
+    Path(conventions.DISTRO_HOME).expanduser().mkdir(parents=True, exist_ok=True)
+
     export_keys()
     init_services(dev_mode=dev_mode)
 
