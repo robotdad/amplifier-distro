@@ -298,7 +298,7 @@ def _install_systemd(include_watchdog: bool) -> ServiceResult:
             success=False,
             platform="linux",
             message="amp-distro-server not found on PATH.",
-            details=["Install amplifier-distro first: uv pip install amplifier-distro"],
+            details=["Install amplifier-distro first: uv tool install amplifier-distro"]
         )
 
     details: list[str] = []
@@ -616,7 +616,7 @@ def _install_launchd(include_watchdog: bool) -> ServiceResult:
             success=False,
             platform="macos",
             message="amp-distro-server not found on PATH.",
-            details=["Install amplifier-distro first: uv pip install amplifier-distro"],
+            details=["Install amplifier-distro first: uv tool install amplifier-distro"]
         )
 
     details: list[str] = []

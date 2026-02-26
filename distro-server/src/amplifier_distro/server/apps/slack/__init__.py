@@ -159,7 +159,7 @@ async def on_startup() -> None:
         except ImportError:
             logger.error(
                 "Socket Mode requires optional dependencies: "
-                "pip install amplifier-distro[slack]  (aiohttp missing)"
+                "uv pip install amplifier-distro[slack]  (aiohttp missing)"
             )
         except Exception:
             logger.exception("Socket Mode startup failed; Slack bridge degraded")

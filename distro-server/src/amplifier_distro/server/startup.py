@@ -190,7 +190,7 @@ def check_foundation_available() -> bool:
         logger.warning(
             "amplifier-foundation is not installed. "
             "The server will not be able to create sessions. "
-            "Install with: uv pip install amplifier-foundation"
+            "Install with: uv install git+https://github.com/amplifier/amplifier-foundation.git"
         )
         return False
 
