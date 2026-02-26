@@ -19,20 +19,14 @@ amplifier-distro is one part of a three-part setup:
 ## Install
 
 ```bash
-uv tool install git+https://github.com/ramparte/amplifier-distro
-```
-
-With Slack support:
-
-```bash
-uv tool install "amplifier-distro[slack] @ git+https://github.com/ramparte/amplifier-distro"
+uv tool install git+https://github.com/microsoft/amplifier-distro
 ```
 
 ### Developer
 
 ```bash
-git clone https://github.com/ramparte/amplifier-distro && cd amplifier-distro
-uv venv && uv pip install -e ".[dev,slack]"
+git clone https://github.com/microsoft/amplifier-distro && cd amplifier-distro
+uv venv && uv pip install -e .
 ```
 
 ## Usage
@@ -41,8 +35,6 @@ uv venv && uv pip install -e ".[dev,slack]"
 
 ```bash
 amp-distro serve                 # Foreground on http://localhost:8400
-amp-distro serve --dev           # Dev mode (mock sessions, no LLM needed)
-amp-distro serve --stub          # Stub mode (canned data, fast UI iteration)
 amp-distro serve --reload        # Auto-reload for development
 ```
 
@@ -80,45 +72,8 @@ amp-distro service status        # Check service status
 Apps are auto-discovered from the `server/apps/` directory. Each is a FastAPI
 router that registers with the server at startup.
 
-## Configuration
-
-The experience server reads configuration from the environment and
-`~/.amplifier/keys.yaml`:
-
-| Setting | Source |
-|---------|--------|
-| Provider API keys | `keys.yaml` (exported to env at server startup) |
-| Voice model/voice | `AMPLIFIER_VOICE_MODEL`, `AMPLIFIER_VOICE_VOICE` env vars |
-| Server API key | `AMPLIFIER_SERVER_API_KEY` env var |
-| Workspace root | `AMPLIFIER_WORKSPACE_ROOT` env var |
-| Slack tokens | `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN` env vars |
-
-## Architecture
-
-```
-amp-distro serve
-  │
-  ├─ FastAPI core (/api/health, /api/sessions, /api/bridge, /api/memory)
-  │
-  ├─ FoundationBackend
-  │    └─ amplifier-foundation: load_bundle() → prepare() → create_session()
-  │
-  └─ Apps (auto-discovered)
-       ├─ web-chat   (browser sessions via HTTP)
-       ├─ slack      (Slack workspace via Socket Mode)
-       ├─ voice      (WebRTC via OpenAI Realtime API)
-       └─ routines   (scheduled YAML-driven execution)
-```
-
-The server creates sessions through `amplifier-foundation` directly. Each
-experience app adapts the session protocol for its transport (HTTP, WebSocket,
-Slack events, WebRTC). A shared `FoundationBackend` manages the session pool
-with per-session FIFO queues for safe concurrent access.
-
 ## Documents
 
 | File | Description |
 |------|-------------|
-| [docs/plans/](docs/plans/) | Implementation plans for server features |
 | [docs/SLACK_SETUP.md](docs/SLACK_SETUP.md) | Slack bridge setup guide |
-| [planning/](planning/) | Historical research and architecture notes |
