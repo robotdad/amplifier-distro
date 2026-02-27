@@ -13,8 +13,8 @@ set -e
 # Uses AMPLIFIER_HOME from environment or falls back to ~/.amplifier
 # (matches conventions.AMPLIFIER_HOME).
 AMPLIFIER_HOME="${AMPLIFIER_HOME:-$HOME/.amplifier}"
-# conventions.DISTRO_CONFIG_FILENAME = "distro.yaml"
-DISTRO_CONFIG="$AMPLIFIER_HOME/distro.yaml"
+AMPLIFIER_DISTRO_HOME="${AMPLIFIER_DISTRO_HOME:-$HOME/.amplifier-distro}"
+DISTRO_CONFIG="$AMPLIFIER_DISTRO_HOME/settings.yaml"
 
 if [ ! -f "$DISTRO_CONFIG" ]; then
     echo "[entrypoint] No distro.yaml found, creating default config..."
