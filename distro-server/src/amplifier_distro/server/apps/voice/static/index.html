@@ -662,17 +662,18 @@ body {
           },
         ];
 
-        // Stage 1: server_vad with threshold and transcription model
+        // Configure transcription and VAD using the GA Realtime API nested format.
+        // input_audio_transcription / turn_detection at the top-level session object
+        // are beta API fields; the GA API uses audio.input.transcription and
+        // audio.input.turn_detection.
         const sessionConfig = {
           type: 'session.update',
           session: {
-            type: 'realtime',
-            turn_detection: {
-              type: 'server_vad',
-              threshold: 0.5,
-            },
-            input_audio_transcription: {
-              model: 'gpt-4o-transcribe',
+            audio: {
+              input: {
+                transcription: { model: 'gpt-4o-transcribe', language: 'en' },
+                turn_detection: { type: 'server_vad', threshold: 0.5 },
+              },
             },
             tools: TOOLS,
           },
@@ -889,9 +890,9 @@ body {
         const s = event.session || {};
         console.log(
           '[VoiceApp] session.updated — transcription:',
-          JSON.stringify(s.input_audio_transcription),
+          JSON.stringify(s.audio?.input?.transcription),
           '| tools:', (s.tools || []).map((t) => t.name).join(', ') || 'none',
-          '| turn_detection:', s.turn_detection?.type,
+          '| turn_detection:', s.audio?.input?.turn_detection?.type,
         );
         return;
       }
@@ -931,7 +932,12 @@ body {
       // Direct DOM mutation is unreliable because Preact reconciliation overwrites
       // textContent whenever msg.content='' is in state. Updating state on each delta
       // keeps Preact's VDOM in sync so reconciliation never blanks the bubble.
+      // Bubble is created lazily here (not in response.created) so tool-call-only
+      // responses never leave an empty orphan bubble in the UI.
       if (type === 'response.audio_transcript.delta') {
+        if (!currentStreamingId.current) {
+          startAssistantMessage();
+        }
         const id = currentStreamingId.current;
         if (id) {
           streamingAccumulator.current += event.delta || '';
@@ -958,8 +964,11 @@ body {
       }
 
       // Text-modality response streaming (fires when modality includes "text").
-      // Mirrors the audio_transcript path — same accumulator, same state updates.
+      // Mirrors the audio_transcript path — same lazy bubble creation, same accumulator.
       if (type === 'response.output_text.delta') {
+        if (!currentStreamingId.current) {
+          startAssistantMessage();
+        }
         const id = currentStreamingId.current;
         if (id) {
           streamingAccumulator.current += event.delta || '';
@@ -983,10 +992,11 @@ body {
         return;
       }
 
-      // Response cycle started
+      // Response cycle started — bubble is created lazily on the first
+      // audio_transcript.delta or output_text.delta so tool-call-only responses
+      // never produce an empty orphan bubble.
       if (type === 'response.created') {
         setRip(true);
-        startAssistantMessage();
         return;
       }
 
