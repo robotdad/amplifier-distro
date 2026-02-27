@@ -22,8 +22,6 @@
 set -e
 
 REPO_URL="https://github.com/microsoft/amplifier-distro"
-AMPLIFIER_URL="https://github.com/microsoft/amplifier"
-TUI_URL="https://github.com/ramparte/amplifier-tui"
 
 # ── Ensure git is available ─────────────────────────────────────
 ensure_git() {
@@ -56,70 +54,6 @@ ensure_uv() {
     export PATH="$HOME/.local/bin:$PATH"
 }
 
-# ── Editable install (source checkout) ───────────────────────────
-install_editable() {
-    echo "[install] Source checkout detected — editable install"
-    echo ""
-
-    echo "[1/3] Installing amplifier-distro (editable)..."
-    if [ ! -d ".venv" ]; then
-        uv venv
-    fi
-    export VIRTUAL_ENV="$PWD/.venv"
-    export PATH="$PWD/.venv/bin:$PATH"
-    uv pip install -e ".[all,dev]"
-
-    # Symlink entry points into ~/.local/bin so they're on PATH after the script exits
-    mkdir -p "$HOME/.local/bin"
-    for cmd in amp-distro amp-distro-server; do
-        if [ -f "$PWD/.venv/bin/$cmd" ]; then
-            ln -sf "$PWD/.venv/bin/$cmd" "$HOME/.local/bin/$cmd"
-            echo "[install] Linked $cmd → ~/.local/bin/$cmd"
-        fi
-    done
-
-    echo ""
-    if command -v amplifier &>/dev/null; then
-        echo "[2/3] Amplifier CLI already installed — skipping (use 'amplifier update' to upgrade)"
-    else
-        echo "[2/3] Installing Amplifier CLI..."
-        uv tool install --force "git+${AMPLIFIER_URL}"
-    fi
-
-    echo ""
-    if command -v amplifier-tui &>/dev/null; then
-        echo "[3/3] amplifier-tui already installed — skipping (reinstall with: uv tool install --force git+${TUI_URL})"
-    else
-        echo "[3/3] Installing amplifier-tui..."
-        uv tool install --force "git+${TUI_URL}"
-    fi
-}
-
-# ── Standalone install (no source checkout) ──────────────────────
-install_standalone() {
-    echo "[install] Standalone install — uv tools"
-    echo ""
-
-    echo "[1/3] Installing amplifier-distro..."
-    uv tool install --force "git+${REPO_URL}@main#subdirectory=distro-server"
-
-    echo ""
-    if command -v amplifier &>/dev/null; then
-        echo "[2/3] Amplifier CLI already installed — skipping (use 'amplifier update' to upgrade)"
-    else
-        echo "[2/3] Installing Amplifier CLI..."
-        uv tool install "git+${AMPLIFIER_URL}"
-    fi
-
-    echo ""
-    if command -v amplifier-tui &>/dev/null; then
-        echo "[3/3] amplifier-tui already installed — skipping (reinstall with: uv tool install --force git+${TUI_URL})"
-    else
-        echo "[3/3] Installing amplifier-tui..."
-        uv tool install "git+${TUI_URL}"
-    fi
-}
-
 # ── Main ─────────────────────────────────────────────────────────
 echo "=== Amplifier Distro - Install ==="
 echo ""
@@ -129,11 +63,8 @@ ensure_gh
 ensure_uv
 echo ""
 
-if [ -f "pyproject.toml" ]; then
-    install_editable
-else
-    install_standalone
-fi
+echo "[1/3] Installing amplifier-distro..."
+uv tool install --force "git+${REPO_URL}@main#subdirectory=distro-server"
 
 echo ""
 echo "=== Install complete ==="
