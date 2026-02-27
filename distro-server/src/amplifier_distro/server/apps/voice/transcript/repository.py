@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 from amplifier_distro.conventions import (
     AMPLIFIER_HOME,
@@ -42,7 +42,7 @@ class VoiceConversationRepository:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _write_atomic(self, path: Path, data: dict[str, Any]) -> None:
+    def _write_atomic(self, path: Path, data: dict[str, Any] | list[Any]) -> None:
         """Write JSON atomically via .tmp -> rename."""
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
@@ -53,11 +53,20 @@ class VoiceConversationRepository:
         """Read current index; return empty list if not present."""
         if not self._index_path.exists():
             return []
-        return json.loads(self._index_path.read_text())  # type: ignore[no-any-return]
+        return cast(list[dict[str, Any]], json.loads(self._index_path.read_text()))
 
     def _write_index(self, entries: list[dict[str, Any]]) -> None:
         """Atomically overwrite index.json."""
-        self._write_atomic(self._index_path, entries)  # type: ignore[arg-type]
+        self._write_atomic(self._index_path, entries)
+
+    def _patch_index_entry(self, session_id: str, **fields: Any) -> None:
+        """Read index, update fields on the matching entry, write back atomically."""
+        index = self._read_index()
+        for item in index:
+            if item["id"] == session_id:
+                item.update(fields)
+                break
+        self._write_index(index)
 
     # ------------------------------------------------------------------
     # Public API
@@ -99,7 +108,11 @@ class VoiceConversationRepository:
         session_dir = self.base_dir / conv.id
         self._write_atomic(session_dir / "conversation.json", conv.to_dict())
 
-    def update_status(self, session_id: str, status: str) -> None:
+    def update_status(
+        self,
+        session_id: str,
+        status: Literal["active", "disconnected", "ended"],
+    ) -> None:
         """Update status in both conversation.json and index.json."""
         conv = self.get_conversation(session_id)
         if conv is None:
@@ -109,14 +122,15 @@ class VoiceConversationRepository:
         self._write_atomic(
             self.base_dir / session_id / "conversation.json", conv.to_dict()
         )
-        index = self._read_index()
-        for item in index:
-            if item["id"] == session_id:
-                item["status"] = status
-                break
-        self._write_index(index)
+        self._patch_index_entry(session_id, status=status)
 
-    def end_conversation(self, session_id: str, reason: str) -> None:
+    def end_conversation(
+        self,
+        session_id: str,
+        reason: Literal[
+            "session_limit", "network_error", "user_ended", "idle_timeout", "error"
+        ],
+    ) -> None:
         """Set status='ended', end_reason, ended_at, duration_seconds.
         Updates both conversation.json and index.json."""
         conv = self.get_conversation(session_id)
@@ -131,13 +145,7 @@ class VoiceConversationRepository:
         self._write_atomic(
             self.base_dir / session_id / "conversation.json", conv.to_dict()
         )
-        index = self._read_index()
-        for item in index:
-            if item["id"] == session_id:
-                item["status"] = "ended"
-                item["end_reason"] = reason
-                break
-        self._write_index(index)
+        self._patch_index_entry(session_id, status="ended", end_reason=reason)
 
     def _maybe_set_title(self, session_id: str, text: str) -> None:
         """Update session title from the first user message if still at default.
@@ -163,15 +171,14 @@ class VoiceConversationRepository:
         self._write_atomic(
             self.base_dir / session_id / "conversation.json", conv.to_dict()
         )
-        index = self._read_index()
-        for item in index:
-            if item["id"] == session_id:
-                item["title"] = title
-                break
-        self._write_index(index)
+        self._patch_index_entry(session_id, title=title)
 
     def add_entry(self, session_id: str, entry: TranscriptEntry) -> None:
         """Append one entry to transcript.jsonl.
+
+        Requires create_conversation() to have been called first for this
+        session_id; the session directory and transcript.jsonl must already
+        exist or FileNotFoundError will be raised.
 
         Special case: the first user entry triggers a title update in
         conversation.json and index.json via _maybe_set_title().
