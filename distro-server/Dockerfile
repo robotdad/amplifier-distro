@@ -30,15 +30,14 @@ RUN useradd -m -s /bin/bash amplifier \
     && mkdir -p /home/amplifier/dev /app \
     && chown -R amplifier:amplifier /home/amplifier /app
 
-# Copy source and shared install script
-COPY --chown=amplifier:amplifier pyproject.toml /app/
+# Copy source code and metadata
+COPY --chown=amplifier:amplifier pyproject.toml uv.lock README.md /app/
 COPY --chown=amplifier:amplifier src/ /app/src/
-COPY --chown=amplifier:amplifier scripts/install.sh /app/scripts/install.sh
 
-# Install everything as the runtime user (all lands in ~/.local)
+# Install as the runtime user into a local venv
 USER amplifier
 WORKDIR /app
-RUN bash scripts/install.sh
+RUN uv venv /app/.venv && uv pip install --python /app/.venv/bin/python .
 ENV PATH="/app/.venv/bin:/home/amplifier/.local/bin:${PATH}"
 
 # Entrypoint (needs root to copy, then switch back)
@@ -55,4 +54,4 @@ HEALTHCHECK --interval=10s --timeout=5s --retries=3 --start-period=15s \
     CMD curl -sf http://localhost:8400/api/health || exit 1
 
 ENTRYPOINT ["docker-entrypoint.sh"]
-CMD ["amp-distro-server", "--host", "0.0.0.0", "--port", "8400"]
+CMD ["amp-distro", "serve", "--host", "0.0.0.0", "--port", "8400"]
