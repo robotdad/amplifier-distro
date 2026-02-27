@@ -822,6 +822,9 @@ body {
     // Tracks the ID of the in-progress user bubble (created on speech_started,
     // filled on transcription.completed).
     const streamingUserBubbleId = useRef(null);
+    // Tracks current audio output item for interruption truncation (P1)
+    const currentOutputItemId = useRef(null);
+    const responseStartTime = useRef(null);
 
     // Keep state and ref in sync together
     const setRip = useCallback((val) => {
@@ -905,6 +908,18 @@ body {
         const id = 'user-' + Date.now();
         streamingUserBubbleId.current = id;
         setMessages((prev) => [...prev, { id, role: 'user', content: '\u2026' }]);
+        // Truncate any in-progress audio response so the conversation history
+        // matches what the user actually heard, not the full undelivered output.
+        if (responseInProgressRef.current && currentOutputItemId.current) {
+          sendDataChannelMessage({
+            type: 'conversation.item.truncate',
+            item_id: currentOutputItemId.current,
+            content_index: 0,
+            audio_end_ms: responseStartTime.current !== null
+              ? Math.max(0, Date.now() - responseStartTime.current)
+              : 0,
+          });
+        }
         return;
       }
 
@@ -999,6 +1014,7 @@ body {
       // never produce an empty orphan bubble.
       if (type === 'response.created') {
         setRip(true);
+        responseStartTime.current = Date.now();
         return;
       }
 
@@ -1012,8 +1028,20 @@ body {
         return;
       }
 
-      // Tool call from the model
+      // Track the current audio output item so speech_started can truncate it (P1)
       if (type === 'response.output_item.added') {
+        const item = event.item;
+        if (item && item.type !== 'function_call') {
+          currentOutputItemId.current = item.id;
+        }
+        return;
+      }
+
+      // Tool call from the model — act on output_item.done, not output_item.added.
+      // output_item.added fires when the item is *created*; arguments stream in
+      // afterward and are only guaranteed complete at output_item.done.
+      // Executing on .added risks calling the tool with empty or truncated arguments.
+      if (type === 'response.output_item.done') {
         const item = event.item;
         if (!item || item.type !== 'function_call') return;
 
@@ -1214,12 +1242,13 @@ body {
     }, [muted]);
 
     // Pause: prevent the model from auto-responding (disable create_response)
+    // Uses GA API nested path: session.audio.input.turn_detection (not beta flat path)
     const enterPauseReplies = useCallback(() => {
       setPauseReplies(true);
       sendDataChannelMessage({
         type: 'session.update',
         session: {
-          turn_detection: { type: 'semantic_vad', eagerness: 'medium', create_response: false },
+          audio: { input: { turn_detection: { type: 'server_vad', create_response: false } } },
         },
       });
     }, [sendDataChannelMessage]);
@@ -1230,7 +1259,7 @@ body {
       sendDataChannelMessage({
         type: 'session.update',
         session: {
-          turn_detection: { type: 'semantic_vad', eagerness: 'medium', create_response: true },
+          audio: { input: { turn_detection: { type: 'server_vad', create_response: true } } },
         },
       });
     }, [sendDataChannelMessage]);
@@ -1509,13 +1538,18 @@ body {
         .catch(() => { /* silent — keep default 'Amplifier' */ });
     }, []);
 
+    // Ref so onProactiveReconnect (below) can call handleResume (defined after this hook call)
+    const handleResumeRef = useRef(null);
+
     // Task 5.5: poll connection health every 5s
     const healthStatus = useConnectionHealth({
       manager: healthManagerRef.current,
       onProactiveReconnect: useCallback(() => {
         console.debug('[VoiceApp] Proactive reconnect triggered by session_limit warning');
-        // TODO: implement proactive reconnect flow
-      }, []),
+        if (handleResumeRef.current && sessionId) {
+          handleResumeRef.current(sessionId);
+        }
+      }, [sessionId]),
     });
 
     // Task 5.5: sync strategy state → manager whenever it changes
@@ -1716,6 +1750,9 @@ body {
         setIsConnecting(false);
       }
     }, [connect, disconnect, setMicStream, streamRef, loadHistoryMessages]);
+
+    // Keep ref current so proactive reconnect (defined above) can forward to handleResume
+    handleResumeRef.current = handleResume;
 
     // handleConnect: POST /apps/voice/sessions then initiate WebRTC
     const handleConnect = useCallback(async () => {
