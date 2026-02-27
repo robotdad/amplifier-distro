@@ -669,6 +669,7 @@ body {
         const sessionConfig = {
           type: 'session.update',
           session: {
+            type: 'realtime',
             audio: {
               input: {
                 transcription: { model: 'gpt-4o-transcribe', language: 'en' },
@@ -934,7 +935,7 @@ body {
       // keeps Preact's VDOM in sync so reconciliation never blanks the bubble.
       // Bubble is created lazily here (not in response.created) so tool-call-only
       // responses never leave an empty orphan bubble in the UI.
-      if (type === 'response.audio_transcript.delta') {
+      if (type === 'response.output_audio_transcript.delta') {
         if (!currentStreamingId.current) {
           startAssistantMessage();
         }
@@ -952,7 +953,7 @@ body {
       // Streaming finished — commit final transcript to state.
       // Use event.transcript if provided; fall back to locally-accumulated value
       // in case the API omits it or the connection was degraded.
-      if (type === 'response.audio_transcript.done') {
+      if (type === 'response.output_audio_transcript.done') {
         const id = currentStreamingId.current;
         const finalText = event.transcript || streamingAccumulator.current || '';
         setMessages((prev) =>
