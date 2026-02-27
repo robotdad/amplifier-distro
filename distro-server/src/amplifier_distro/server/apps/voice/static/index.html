@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Amplifier Voice</title>
 <script src="/apps/voice/static/vendor.js"></script>
+<script src="/apps/voice/static/connection-health.mjs"></script>
 <style>
 /* ------------------------------------------------------------------ */
 /*  CSS: dark theme, system-ui font, flex column layout, 900px max     */
@@ -1077,84 +1078,6 @@ body {
     }, [sendDataChannelMessage, sessionId, addUserMessage, startAssistantMessage, setRip, onPauseReplies, onResumeReplies]);
 
     return { messages, responseInProgress, messageRefs, handleDataChannelEvent, clearMessages, loadHistoryMessages };
-  }
-
-  // -------------------------------------------------------------------------
-  // ConnectionHealthManager  (Task 5.5) — pure logic, no UI
-  // -------------------------------------------------------------------------
-
-  class ConnectionHealthManager {
-    /**
-     * @param {{ strategy?: 'manual'|'auto_immediate'|'auto_delayed'|'proactive' }} options
-     */
-    constructor({ strategy = 'manual' } = {}) {
-      this.strategy = strategy;
-      this.reconnectCount = 0;
-      this.disconnectHistory = [];
-      this._sessionStart = null;
-      this._lastEventTime = null;
-      this._lastSpeechTime = null;
-    }
-
-    /** Call when a new session starts (or reconnects). */
-    startSession() {
-      const now = Date.now();
-      this._sessionStart = now;
-      this._lastEventTime = now;
-      this._lastSpeechTime = now;
-    }
-
-    /** Record that a realtime event was received (heartbeat for staleness). */
-    recordEvent() {
-      this._lastEventTime = Date.now();
-    }
-
-    /** Record that the user or assistant produced speech. */
-    recordSpeech() {
-      this._lastSpeechTime = Date.now();
-    }
-
-    /**
-     * Returns a snapshot of current session health.
-     * @returns {{
-     *   sessionAge: number|null,
-     *   timeSinceEvent: number,
-     *   timeSinceSpeech: number,
-     *   warnings: string[],
-     *   reconnectCount: number,
-     * }}
-     */
-    getStatus() {
-      const now = Date.now();
-      const sessionAge =
-        this._sessionStart !== null ? (now - this._sessionStart) / 1000 : null;
-      const timeSinceEvent =
-        this._lastEventTime !== null ? (now - this._lastEventTime) / 1000 : 0;
-      const timeSinceSpeech =
-        this._lastSpeechTime !== null ? (now - this._lastSpeechTime) / 1000 : 0;
-
-      const warnings = [];
-      if (timeSinceEvent > 30) warnings.push('stale');
-      if (timeSinceSpeech > 120) warnings.push('idle');
-      if (sessionAge !== null && sessionAge > 55 * 60) warnings.push('session_limit');
-
-      return { sessionAge, timeSinceEvent, timeSinceSpeech, warnings, reconnectCount: this.reconnectCount };
-    }
-
-    /**
-     * Infer why the session disconnected.
-     * @param {number} sessionAge  Age in seconds at time of disconnect.
-     * @returns {'session_limit'|'idle_timeout'|'network_error'}
-     */
-    inferDisconnectReason(sessionAge) {
-      if (sessionAge >= 58 * 60) return 'session_limit';
-      const timeSinceSpeech =
-        this._lastSpeechTime !== null
-          ? (Date.now() - this._lastSpeechTime) / 1000
-          : Infinity;
-      if (timeSinceSpeech >= 120) return 'idle_timeout';
-      return 'network_error';
-    }
   }
 
   // -------------------------------------------------------------------------

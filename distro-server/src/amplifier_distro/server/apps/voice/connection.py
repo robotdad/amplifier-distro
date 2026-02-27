@@ -8,9 +8,8 @@ One instance per voice connection. Owns:
 HOOK CLEANUP: Critical — without unregistering in finally, dead hook registrations
 accumulate across reconnects and fire against closed queues.
 
-SPAWN CAPABILITY: Critical — without registering spawn, delegate tool sub-sessions
-bypass shared backend entirely (no hooks, no observability, no session tracking).
-Always register before first handle.run().
+SPAWN CAPABILITY: Handled by FoundationBackend via spawn_registration.py — registers
+session.spawn on the coordinator at create_session() time.
 """
 
 from __future__ import annotations
@@ -104,28 +103,8 @@ class VoiceConnection:
                     self._session_id,
                 )
 
-        # 4. Register 'spawn' capability so delegate tool sub-sessions route through
-        #    shared backend (ensures hooks, observability, and session tracking)
-        coordinator = getattr(session, "coordinator", None)
-        if coordinator is not None:
-            register_capability = getattr(coordinator, "register_capability", None)
-            if register_capability is not None:
-                register_capability("spawn", self._spawn_child_session)
-
         assert self._session_id is not None  # set above from session.session_id
         return self._session_id
-
-    async def _spawn_child_session(self, **kwargs: Any) -> Any:
-        """Spawn a child session through the backend with the same event queue.
-
-        Called when the 'spawn' capability is invoked by the delegate tool.
-        Ensures child sessions use the shared backend (hooks, observability, tracking).
-        Without this, delegate tool sub-sessions bypass the backend entirely.
-        """
-        return await self._backend.create_session(
-            event_queue=self._event_queue,
-            **kwargs,
-        )
 
     async def teardown(self) -> None:
         """Handle client disconnect: mark session disconnected, always cleanup hook.
