@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -36,6 +37,15 @@ logger = logging.getLogger(__name__)
 
 # Prevents concurrent overlay mutations and preflight runs.
 OVERLAY_LOCK = asyncio.Lock()
+
+# When True, startup preflight failure crashes the server (fail-fast).
+# When False, failure logs a warning and the server continues.
+# Flip to True once foundation handles monorepo integrity checks
+# (see https://github.com/microsoft/amplifier-foundation/pull/95).
+STARTUP_PREFLIGHT_STRICT = os.environ.get("AMPLIFIER_PREFLIGHT_STRICT", "").lower() in (
+    "1",
+    "true",
+)
 
 
 # -------------------------------------------------------------------
@@ -107,8 +117,14 @@ async def run_startup_preflight() -> None:
 
     Registered as a FastAPI ``startup`` event handler.  If the system
     is not yet configured (no overlay or no provider key), this is a
-    no-op.  On failure the exception propagates, causing uvicorn to
-    exit (fail-fast).
+    no-op.
+
+    Behaviour on failure is controlled by ``STARTUP_PREFLIGHT_STRICT``:
+
+    - **strict** (``AMPLIFIER_PREFLIGHT_STRICT=1``): exception propagates,
+      causing uvicorn to exit (fail-fast).
+    - **warn** (default): logs a warning and allows the server to start.
+      Bundle issues will surface later at session-creation time.
     """
     # Lazy import to avoid circular dependency (settings -> preflight).
     from amplifier_distro.server.apps.settings import compute_phase
@@ -118,11 +134,20 @@ async def run_startup_preflight() -> None:
         logger.info("Startup preflight skipped (phase=%s)", phase)
         return
 
-    async with OVERLAY_LOCK:
-        logger.info("Running startup bundle preflight...")
-        preflight_lightweight(overlay_bundle_path())
-        await preflight_full(overlay_dir())
-        logger.info("Startup bundle preflight passed")
+    try:
+        async with OVERLAY_LOCK:
+            logger.info("Running startup bundle preflight...")
+            preflight_lightweight(overlay_bundle_path())
+            await preflight_full(overlay_dir())
+            logger.info("Startup bundle preflight passed")
+    except Exception:
+        if STARTUP_PREFLIGHT_STRICT:
+            raise
+        logger.warning(
+            "Startup preflight failed (non-fatal, set "
+            "AMPLIFIER_PREFLIGHT_STRICT=1 to make this an error)",
+            exc_info=True,
+        )
 
 
 # -------------------------------------------------------------------
