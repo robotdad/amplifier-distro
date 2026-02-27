@@ -928,7 +928,7 @@ body {
       // Direct DOM mutation is unreliable because Preact reconciliation overwrites
       // textContent whenever msg.content='' is in state. Updating state on each delta
       // keeps Preact's VDOM in sync so reconciliation never blanks the bubble.
-      if (type === 'response.output_audio_transcript.delta') {
+      if (type === 'response.audio_transcript.delta') {
         const id = currentStreamingId.current;
         if (id) {
           streamingAccumulator.current += event.delta || '';
@@ -943,7 +943,7 @@ body {
       // Streaming finished — commit final transcript to state.
       // Use event.transcript if provided; fall back to locally-accumulated value
       // in case the API omits it or the connection was degraded.
-      if (type === 'response.output_audio_transcript.done') {
+      if (type === 'response.audio_transcript.done') {
         const id = currentStreamingId.current;
         const finalText = event.transcript || streamingAccumulator.current || '';
         setMessages((prev) =>
