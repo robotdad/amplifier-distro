@@ -291,6 +291,134 @@ body {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Delegation Overlay  (delegation-feedback)                         */
+/* ------------------------------------------------------------------ */
+.delegation-overlay {
+  background: #0d1a2e;
+  border: 1px solid #1e3a5f;
+  border-radius: 8px;
+  padding: 12px 16px;
+  color: #60a5fa;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: fadeInOverlay 0.2s ease;
+}
+@keyframes fadeInOverlay {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.delegation-overlay-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.delegation-overlay-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 2px solid #60a5fa;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.delegation-overlay-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 80px;
+  overflow-y: auto;
+  padding-left: 18px;
+}
+.delegation-overlay-tool {
+  color: #93c5fd;
+  font-size: 12px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+.delegation-overlay-tool::before {
+  content: '→ ';
+  color: #3b82f6;
+}
+/* ------------------------------------------------------------------ */
+/*  Delegation Transcript Entry  (delegation-feedback)                */
+/* ------------------------------------------------------------------ */
+.message-bubble.delegation {
+  align-self: stretch;
+  max-width: 100%;
+  align-items: flex-start;
+}
+.message-bubble.delegation .bubble-label {
+  color: #3b82f6;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.message-bubble.delegation .bubble-text {
+  background: #0d1a2e;
+  color: #93c5fd;
+  border: 1px solid #1e3a5f;
+  border-bottom-left-radius: 4px;
+  font-size: 13px;
+  width: 100%;
+  cursor: pointer;
+}
+.message-bubble.delegation .bubble-text:hover {
+  border-color: #3b82f6;
+}
+.message-bubble.delegation.error .bubble-text {
+  background: #1a0e00;
+  border-color: #78350f;
+  color: #fbbf24;
+}
+.delegation-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.delegation-dots {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+}
+.delegation-dots span {
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #60a5fa;
+  animation: dotPulse 1.2s ease-in-out infinite;
+}
+.delegation-dots span:nth-child(2) { animation-delay: 0.2s; }
+.delegation-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes dotPulse {
+  0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+  40%           { opacity: 1;   transform: scale(1); }
+}
+.delegation-tool-list {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid #1e3a5f;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.delegation-tool-item {
+  font-size: 11px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  color: #60a5fa;
+}
+.delegation-tool-item::before {
+  content: '→ ';
+  color: #3b82f6;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Connection Health Panel  (Task 5.5)                               */
 /* ------------------------------------------------------------------ */
 .health-panel {
@@ -1069,6 +1197,29 @@ body {
           return;
         }
 
+        // Vocal injection: deterministic acknowledgement before delegation POST.
+        // Fire-and-forget — never blocks tool execution if injection throws.
+        if (toolName === 'delegate') {
+          try {
+            const _agentRaw = (() => {
+              try { return JSON.parse(args || '{}').agent || 'sub-agent'; }
+              catch (_) { return 'sub-agent'; }
+            })();
+            const _agentLabel = _agentRaw.replace(/[-_]/g, ' ');
+            sendDataChannelMessage({
+              type: 'conversation.item.create',
+              item: {
+                type:    'message',
+                role:    'assistant',
+                content: [{ type: 'input_text', text: `Delegating to ${_agentLabel} now…` }],
+              },
+            });
+            sendDataChannelMessage({ type: 'response.create' });
+          } catch (_injectErr) {
+            console.warn('[useChatMessages] Vocal injection failed (non-fatal):', _injectErr);
+          }
+        }
+
         // Execute tool on the server
         // NOTE: server reads body.get("name"), not "tool_name"
         let output;
@@ -1315,26 +1466,124 @@ body {
   }
 
   // -------------------------------------------------------------------------
-  // useAmplifierEvents({ onEvent })   Task 5.6
-  // Opens an SSE stream to /apps/voice/events, logs events with icons,
-  // and calls onEvent(msg) for every non-heartbeat message.
+  // DelegationOverlay({ state })   delegation-feedback
+  // Floating panel below the header. Visible only while delegation is active.
+  // -------------------------------------------------------------------------
+
+  function DelegationOverlay({ state }) {
+    if (!state || !state.active) return null;
+
+    return html`
+      <div class="delegation-overlay">
+        <div class="delegation-overlay-header">
+          <div class="delegation-overlay-spinner"></div>
+          <span>Delegating to <strong>${state.agentName || 'sub-agent'}</strong>…</span>
+        </div>
+        ${state.tools && state.tools.length > 0 && html`
+          <div class="delegation-overlay-tools">
+            ${state.tools.map((tool, i) => html`
+              <div key=${i} class="delegation-overlay-tool">${tool}</div>
+            `)}
+          </div>
+        `}
+      </div>
+    `;
+  }
+
+  // -------------------------------------------------------------------------
+  // DelegationTranscriptEntry({ entry })   delegation-feedback
+  // Permanent bubble in transcript. entry: { id, agentName, active, tools[], elapsed, error }
+  // -------------------------------------------------------------------------
+
+  function DelegationTranscriptEntry({ entry }) {
+    const [expanded, setExpanded] = useState(false);
+
+    if (!entry) return null;
+
+    const { agentName, active, tools, elapsed, error } = entry;
+    const toolCount = tools ? tools.length : 0;
+    const agentLabel = agentName || 'sub-agent';
+    const elapsedLabel = elapsed != null ? `${elapsed}s` : null;
+
+    if (active) {
+      return html`
+        <div class=${'message-bubble delegation'}>
+          <div class="bubble-label">↗ delegation</div>
+          <div class="bubble-text">
+            <div class="delegation-summary">
+              <span>Delegating to <strong>${agentLabel}</strong></span>
+              <div class="delegation-dots">
+                <span></span><span></span><span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    const summaryParts = [
+      `Delegated to ${agentLabel}`,
+      `${toolCount} ${toolCount === 1 ? 'tool' : 'tools'}`,
+      elapsedLabel,
+    ].filter(Boolean).join(' · ');
+
+    return html`
+      <div class=${'message-bubble delegation' + (error ? ' error' : '')}>
+        <div class="bubble-label">↗ delegation</div>
+        <div
+          class="bubble-text"
+          onClick=${() => toolCount > 0 && setExpanded((e) => !e)}
+          title=${toolCount > 0 ? (expanded ? 'Click to collapse' : 'Click to expand tool list') : ''}
+        >
+          <div class="delegation-summary">
+            <span>${error ? '⚠ ' : '✓ '}${summaryParts}</span>
+            ${toolCount > 0 && html`<span style="color:#3b82f6;font-size:11px;">${expanded ? '▲' : '▼'}</span>`}
+          </div>
+          ${expanded && toolCount > 0 && html`
+            <div class="delegation-tool-list">
+              ${tools.map((tool, i) => html`
+                <div key=${i} class="delegation-tool-item">${tool}</div>
+              `)}
+            </div>
+          `}
+        </div>
+      </div>
+    `;
+  }
+
+  // -------------------------------------------------------------------------
+  // useAmplifierEvents({ onEvent, onDelegationStart, onDelegationEnd })
+  // delegation-feedback: Extended to track delegation lifecycle.
+  // Returns { delegationState } for the overlay component.
   // -------------------------------------------------------------------------
 
   const AMPLIFIER_EVENT_ICONS = {
-    provider_request:  '🔼',
-    provider_response: '🔽',
-    tool_call:         '🔧',
-    tool_result:       '🔧',
-    tool_error:        '❌',
-    session_fork:      '🔀',
-    cancel_requested:  '🛑',
-    cancel_completed:  '✅',
+    provider_request:          '🔼',
+    provider_response:         '🔽',
+    tool_call:                 '🔧',
+    tool_result:               '🔧',
+    tool_error:                '❌',
+    session_fork:              '🔀',
+    cancel_requested:          '🛑',
+    cancel_completed:          '✅',
+    delegate_agent_completed:  '✓',
   };
 
-  function useAmplifierEvents({ onEvent }) {
-    // Use a ref so the EventSource is not recreated when onEvent changes
-    const onEventRef = useRef(onEvent);
+  function useAmplifierEvents({ onEvent, onDelegationStart, onDelegationEnd }) {
+    const onEventRef  = useRef(onEvent);
+    const onStartRef  = useRef(onDelegationStart);
+    const onEndRef    = useRef(onDelegationEnd);
     useEffect(() => { onEventRef.current = onEvent; });
+    useEffect(() => { onStartRef.current = onDelegationStart; });
+    useEffect(() => { onEndRef.current = onDelegationEnd; });
+
+    const [delegationState, setDelegationState] = useState({
+      active: false, agentName: null, startTime: null, tools: [],
+    });
+
+    const delegationToolsRef  = useRef([]);
+    const delegationStartRef  = useRef(null);
+    const delegationAgentRef  = useRef(null);
 
     useEffect(() => {
       const es = new EventSource('/apps/voice/events');
@@ -1342,9 +1591,7 @@ body {
       es.onmessage = (event) => {
         let msg;
         try { msg = JSON.parse(event.data); } catch (_) { return; }
-
-        // Skip heartbeat pings — they are not meaningful to the consumer
-        if (msg.type === 'heartbeat') return;
+        if (!msg || msg.type === 'heartbeat') return;
 
         const icon = AMPLIFIER_EVENT_ICONS[msg.type] || '📨';
         console.log(
@@ -1352,6 +1599,36 @@ body {
           'color:#818cf8;font-weight:bold;',
           msg,
         );
+
+        if (msg.type === 'session_fork') {
+          const agentName = msg.agent || 'sub-agent';
+          delegationToolsRef.current = [];
+          delegationStartRef.current = Date.now();
+          delegationAgentRef.current = agentName;
+          setDelegationState({ active: true, agentName, startTime: Date.now(), tools: [] });
+          if (onStartRef.current) onStartRef.current(msg);
+
+        } else if (msg.type === 'tool_call' && msg.delegating_agent) {
+          if (msg.tool_name) {
+            delegationToolsRef.current = [...delegationToolsRef.current, msg.tool_name];
+            setDelegationState((prev) => ({ ...prev, tools: [...delegationToolsRef.current] }));
+          }
+
+        } else if (msg.type === 'delegate_agent_completed') {
+          const startMs = delegationStartRef.current;
+          const elapsed = startMs ? ((Date.now() - startMs) / 1000).toFixed(1) : '0.0';
+          const snapshot = {
+            agentName: delegationAgentRef.current || 'sub-agent',
+            tools:     [...delegationToolsRef.current],
+            elapsed,
+            error:     msg.error || false,
+          };
+          setDelegationState({ active: false, agentName: null, startTime: null, tools: [] });
+          delegationToolsRef.current = [];
+          delegationStartRef.current = null;
+          delegationAgentRef.current = null;
+          if (onEndRef.current) onEndRef.current(snapshot);
+        }
 
         if (onEventRef.current) onEventRef.current(msg);
       };
@@ -1361,7 +1638,9 @@ body {
       };
 
       return () => { es.close(); };
-    }, []); // open once on mount, close on unmount
+    }, []);
+
+    return { delegationState };
   }
 
   // -------------------------------------------------------------------------
@@ -1529,6 +1808,9 @@ body {
     const [runningTools, setRunningTools] = useState([]);
     const runningToolsRef = useRef([]);   // shadow ref for sync mutation
 
+    // delegation-feedback: permanent transcript record of each delegation
+    const [delegationEntries, setDelegationEntries] = useState([]);
+
     // Task 5.4: fetch assistant name on mount (default: 'Amplifier')
     const [assistantName, setAssistantName] = useState('Amplifier');
     useEffect(() => {
@@ -1636,11 +1918,28 @@ body {
     // Wire latest handler into stable ref on every render (ref mutation, no rerender)
     msgHandlerRef.current = handleDataChannelEvent;
 
-    // Task 5.6: SSE consumer — logs Amplifier backend events with icons to the browser console
-    useAmplifierEvents({
+    // delegation-feedback: SSE consumer with delegation lifecycle
+    const { delegationState } = useAmplifierEvents({
       onEvent: useCallback((msg) => {
-        // Future: could display events in a debug panel
         console.debug('[VoiceApp] Amplifier event received:', msg.type);
+      }, []),
+
+      onDelegationStart: useCallback((msg) => {
+        const entryId = `delegation-${Date.now()}`;
+        setDelegationEntries((prev) => [
+          ...prev,
+          { id: entryId, agentName: msg.agent || 'sub-agent', active: true, tools: [], elapsed: null, error: false },
+        ]);
+      }, []),
+
+      onDelegationEnd: useCallback((snapshot) => {
+        setDelegationEntries((prev) =>
+          prev.map((entry) =>
+            entry.active
+              ? { ...entry, active: false, tools: snapshot.tools, elapsed: snapshot.elapsed, error: snapshot.error }
+              : entry
+          )
+        );
       }, []),
     });
 
@@ -1828,6 +2127,8 @@ body {
           </div>
         `}
 
+        <${DelegationOverlay} state=${delegationState} />
+
         ${error && html`
           <div class="error-banner">
             <span>⚠</span>
@@ -1861,6 +2162,9 @@ body {
                 </div>
               `)
           }
+          ${delegationEntries.map((entry) => html`
+            <${DelegationTranscriptEntry} key=${entry.id} entry=${entry} />
+          `)}
           <div ref=${transcriptEndRef}></div>
         </div>
 
