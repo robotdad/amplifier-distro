@@ -1,2 +1,4 @@
 .amplifier/settings.local.yaml
 .worktrees/
+worktrees/
+.DS_Store
