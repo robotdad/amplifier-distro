@@ -15,6 +15,7 @@ session.spawn on the coordinator at create_session() time.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Callable
 from typing import Any
@@ -81,11 +82,23 @@ class VoiceConnection:
         # exclude_tools=["delegate"] enforces the pure-orchestrator model: the
         # voice model decides what to delegate; sub-agents must not re-delegate
         # back through the voice bridge (would create recursive loops).
+
+        # Build a forwarder that pushes child delegation events onto this
+        # connection's event queue so the browser SSE stream receives them.
+        # Uses put_nowait to match EventStreamingHook's non-blocking behavior;
+        # exceptions are suppressed silently (same policy as the hook).
+        _q = self._event_queue
+
+        def _event_forwarder(msg: dict) -> None:
+            with contextlib.suppress(Exception):
+                _q.put_nowait(msg)
+
         session = await self._backend.create_session(
             description="voice",
             working_dir=workspace_root,
             event_queue=self._event_queue,
             exclude_tools=["delegate"],
+            event_forwarder=_event_forwarder,
         )
 
         # 3. Store session references

@@ -325,6 +325,7 @@ class FoundationBackend:
         # Guard: sessions whose hooks have already been wired (prevents
         # double-registration on page refresh / resume)
         self._wired_sessions: set[str] = set()
+        self._event_forwarders: dict[str, Callable[[dict], None] | None] = {}
 
     async def _load_bundle(self, bundle_name: str | None = None) -> Any:
         """Load and prepare a bundle via foundation.
@@ -537,6 +538,7 @@ class FoundationBackend:
         description: str = "",
         event_queue: asyncio.Queue | None = None,
         exclude_tools: list[str] | None = None,
+        event_forwarder: Callable[[dict], None] | None = None,
     ) -> SessionInfo:
         wd = Path(working_dir).expanduser()
 
@@ -556,6 +558,7 @@ class FoundationBackend:
             prepared=prepared,
         )
         self._sessions[session_id] = handle
+        self._event_forwarders[session_id] = event_forwarder
 
         # Wire persistence hooks
         session_dir = (
@@ -591,7 +594,13 @@ class FoundationBackend:
             )
 
         # Register session spawning capability
-        register_spawning(session, prepared, session_id, exclude_tools=exclude_tools)
+        register_spawning(
+            session,
+            prepared,
+            session_id,
+            exclude_tools=exclude_tools,
+            event_forwarder=event_forwarder,
+        )
 
         # Pre-start the session worker so the first message doesn't pay
         # the task-creation overhead
@@ -788,7 +797,12 @@ class FoundationBackend:
             register_metadata_hooks(session, session_dir)
 
             # Register session spawning capability on reconnect
-            register_spawning(session, prepared, session_id)
+            register_spawning(
+                session,
+                prepared,
+                session_id,
+                event_forwarder=self._event_forwarders.get(session_id),
+            )
 
             queue: asyncio.Queue = asyncio.Queue()
             self._session_queues[session_id] = queue

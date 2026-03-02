@@ -13,6 +13,7 @@ Reference implementation: amplifier-foundation examples/07_full_workflow.py
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,7 @@ def register_spawning(
     prepared: Any,
     session_id: str,
     exclude_tools: list[str] | None = None,
+    event_forwarder: Callable[[dict], None] | None = None,
 ) -> None:
     """Register ``session.spawn`` capability on *session*'s coordinator.
 
@@ -38,15 +40,82 @@ def register_spawning(
                        sub-session creation.
         session_id:    ID of *session* (for logging only).
         exclude_tools: Tool module names to remove from every child bundle's
-                       tool list.  Pass ``["delegate"]`` for voice sessions to
+                       tool list.  Pass ``[\"delegate\"]`` for voice sessions to
                        prevent recursive delegation loops
-                       (voice → agent → voice → agent ...).
+                       (voice \u2192 agent \u2192 voice \u2192 agent ...).
+        event_forwarder: Optional callable that receives SSE wire dicts from the
+                         child session. When provided, a forwarding hook is
+                         appended to the child bundle that maps child Amplifier
+                         events to SSE wire dicts tagged with ``delegating_agent``
+                         and calls this callable for each. When None (default),
+                         behavior is completely unchanged.
     """
     # Deferred import: amplifier_foundation is an optional runtime dependency.
     # Importing at module level would break if foundation is not installed.
     from amplifier_foundation import Bundle  # type: ignore[import]
 
     coordinator = session.coordinator
+
+    # ------------------------------------------------------------------ #
+    # Event forwarding: map child session events to parent SSE wire dicts
+    # with delegating_agent tagged. Only constructed when event_forwarder
+    # is provided — zero overhead for non-voice callers.
+    # ------------------------------------------------------------------ #
+
+    def _map_child_event(event: str, data: dict, agent_name: str) -> dict | None:
+        """Map a child Amplifier event to a parent SSE wire dict.
+
+        Returns None for events not worth forwarding.
+        Adds delegating_agent to every forwarded dict.
+        """
+        if event == "tool:pre":
+            return {
+                "type": "tool_call",
+                "tool_name": data.get("tool_name"),
+                "tool_call_id": data.get("tool_call_id"),
+                "arguments": data.get("arguments"),
+                "status": "pending",
+                "delegating_agent": agent_name,
+            }
+        if event == "session:fork":
+            return {
+                "type": "session_fork",
+                "child_session_id": data.get("child_session_id"),
+                "agent": data.get("agent"),
+                "delegating_agent": agent_name,
+            }
+        if event == "orchestrator:complete":
+            return {
+                "type": "delegate_agent_completed",
+                "delegating_agent": agent_name,
+            }
+        return None
+
+    class _ForwardingHook:
+        """Lightweight hook appended to the child bundle when event_forwarder is set."""
+
+        name = "delegation-event-forwarder"
+        priority = 90  # slightly lower than EventStreamingHook (100)
+
+        def __init__(
+            self,
+            forwarder: Callable[[dict], None],
+            agent_name: str,
+        ) -> None:
+            self._forwarder = forwarder
+            self._agent_name = agent_name
+
+        async def __call__(self, event: str, data: dict) -> None:
+            wire = _map_child_event(event, data, self._agent_name)
+            if wire is not None:
+                try:
+                    self._forwarder(wire)
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "delegation-event-forwarder: failed to forward event %s",
+                        event,
+                        exc_info=True,
+                    )
 
     async def spawn_fn(
         agent_name: str,
@@ -140,13 +209,21 @@ def register_spawning(
 
             tools = [t for t in tools if not _is_excluded(t)]
 
+        # Build hooks list: append forwarding hook when event_forwarder is wired
+        _base_hooks: list = list(config.get("hooks", []))
+        _child_hooks = (
+            [*_base_hooks, _ForwardingHook(event_forwarder, agent_name)]
+            if event_forwarder is not None
+            else _base_hooks
+        )
+
         child_bundle = Bundle(
             name=agent_name,
             version=_CHILD_BUNDLE_VERSION,
             session=config.get("session", {}),
             providers=config.get("providers", []),
             tools=tools,
-            hooks=config.get("hooks", []),
+            hooks=_child_hooks,
             instruction=(
                 config.get("instruction") or config.get("system", {}).get("instruction")
             ),

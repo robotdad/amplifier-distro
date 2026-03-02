@@ -204,3 +204,73 @@ async def test_self_delegation_depth_forwarded():
         self_delegation_depth=3,
     )
     assert prepared.spawn.call_args[1]["self_delegation_depth"] == 3
+
+
+@pytest.mark.asyncio
+async def test_event_forwarder_called_with_delegating_agent():
+    """When event_forwarder is provided, forwarding hook tags events with delegating_agent.
+
+    Verifies:
+    - A hook named 'delegation-event-forwarder' is appended to the child bundle
+    - When that hook fires with a tool:pre event, event_forwarder is called
+    - The forwarded dict contains delegating_agent == the agent name
+    - The forwarded dict contains type == 'tool_call'
+    """
+    session = _make_session()
+    prepared = _make_prepared(bundle_agents={"my-agent": {"instruction": "Be helpful."}})
+
+    forwarded: list[dict] = []
+
+    def event_forwarder(msg: dict) -> None:
+        forwarded.append(msg)
+
+    register_spawning(session, prepared, "parent-001", event_forwarder=event_forwarder)
+    fn = _get_registered_spawn_fn(session)
+
+    # Override spawn to capture the child_bundle argument so we can inspect its hooks
+    captured_bundles: list = []
+
+    async def capturing_spawn(child_bundle, **kwargs):
+        captured_bundles.append(child_bundle)
+        return {"response": "ok", "session_id": "child-001"}
+
+    prepared.spawn = capturing_spawn
+
+    await fn(
+        agent_name="my-agent",
+        instruction="do work",
+        parent_session=session,
+        agent_configs={"my-agent": {"instruction": "Be helpful."}},
+        sub_session_id="child-001",
+    )
+
+    assert len(captured_bundles) == 1, "prepared.spawn() was not called"
+    bundle = captured_bundles[0]
+
+    # The forwarding hook must be present in the child bundle's hooks list
+    forwarding_hook = next(
+        (h for h in bundle.hooks if getattr(h, "name", "") == "delegation-event-forwarder"),
+        None,
+    )
+    assert forwarding_hook is not None, (
+        "No hook named 'delegation-event-forwarder' found in child bundle hooks. "
+        f"Hooks present: {[getattr(h, 'name', repr(h)) for h in bundle.hooks]}"
+    )
+
+    # Fire a synthetic tool:pre event through the hook
+    await forwarding_hook(
+        "tool:pre",
+        {"tool_name": "bash", "tool_call_id": "tc-001", "arguments": {"cmd": "ls"}},
+    )
+
+    assert len(forwarded) == 1, (
+        f"event_forwarder was called {len(forwarded)} times, expected 1"
+    )
+    msg = forwarded[0]
+    assert msg.get("delegating_agent") == "my-agent", (
+        f"Expected delegating_agent='my-agent', got {msg.get('delegating_agent')!r}"
+    )
+    assert msg.get("type") == "tool_call", (
+        f"Expected type='tool_call', got {msg.get('type')!r}"
+    )
+    assert msg.get("tool_name") == "bash"

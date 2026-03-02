@@ -309,6 +309,8 @@ async def events_stream(
     await _check_origin(origin)
 
     async def _generate():
+        import json as _json
+
         try:
             while True:
                 if await request.is_disconnected():
@@ -320,7 +322,37 @@ async def events_stream(
                             conn.event_queue.get(),
                             timeout=5.0,
                         )
-                        import json as _json
+                        # Normalize queue items to JSON-object format.
+                        #
+                        # The queue receives two distinct shapes:
+                        #
+                        # 1. TUPLES — emitted by _wire_event_queue's on_stream,
+                        #    QueueDisplaySystem, and ApprovalSystem:
+                        #        (event_name: str, data: dict)
+                        #    json.dumps(tuple) produces a JSON *array*, which the
+                        #    browser's useAmplifierEvents hook cannot dispatch on
+                        #    (it reads `event.type`, undefined on an array).
+                        #
+                        # 2. DICTS — emitted by _ForwardingHook via _event_forwarder
+                        #    in VoiceConnection.create():
+                        #        {"type": "session_fork", "delegating_agent": ..., ...}
+                        #    Already the correct shape; pass through unchanged.
+                        #
+                        # Normalize tuples → {"type": <normalized_name>, ...data}
+                        # using the same name convention as EventStreamingHook:
+                        #   "content_block:start" → "content_start"
+                        #   "tool:pre"            → "tool_pre"
+                        #   "display_message"     → "display_message"
+                        if isinstance(event, tuple) and len(event) == 2:
+                            raw_name, data = event
+                            type_name = (
+                                str(raw_name).replace(":", "_").replace("_block", "")
+                            )
+                            event = {
+                                "type": type_name,
+                                "event": raw_name,
+                                **(data or {}),
+                            }
 
                         yield f"data: {_json.dumps(event)}\n\n"
                     except TimeoutError:
