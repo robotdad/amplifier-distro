@@ -1477,7 +1477,9 @@ body {
       <div class="delegation-overlay">
         <div class="delegation-overlay-header">
           <div class="delegation-overlay-spinner"></div>
-          <span>Delegating to <strong>${state.agentName || 'sub-agent'}</strong>…</span>
+          <span>${state.agentName
+            ? html`Delegating to <strong>${state.agentName}</strong>…`
+            : 'Working…'}</span>
         </div>
         ${state.tools && state.tools.length > 0 && html`
           <div class="delegation-overlay-tools">
@@ -1508,10 +1510,12 @@ body {
     if (active) {
       return html`
         <div class=${'message-bubble delegation'}>
-          <div class="bubble-label">↗ delegation</div>
+          <div class="bubble-label">↗ activity</div>
           <div class="bubble-text">
             <div class="delegation-summary">
-              <span>Delegating to <strong>${agentLabel}</strong></span>
+              <span>${agentName
+                ? html`Delegating to <strong>${agentName}</strong>`
+                : 'Working'}</span>
               <div class="delegation-dots">
                 <span></span><span></span><span></span>
               </div>
@@ -1522,7 +1526,7 @@ body {
     }
 
     const summaryParts = [
-      `Delegated to ${agentLabel}`,
+      agentName ? `Delegated to ${agentName}` : 'Completed',
       `${toolCount} ${toolCount === 1 ? 'tool' : 'tools'}`,
       elapsedLabel,
     ].filter(Boolean).join(' · ');
@@ -1561,9 +1565,12 @@ body {
     provider_request:          '🔼',
     provider_response:         '🔽',
     tool_call:                 '🔧',
+    tool_pre:                  '🔧',
+    tool_post:                 '✅',
     tool_result:               '🔧',
     tool_error:                '❌',
     session_fork:              '🔀',
+    orchestrator_complete:     '🏁',
     cancel_requested:          '🛑',
     cancel_completed:          '✅',
     delegate_agent_completed:  '✓',
@@ -1600,7 +1607,14 @@ body {
           msg,
         );
 
+        // --- Activity lifecycle tracking ---
+        // Tracks TWO kinds of activity:
+        //   1. Child delegation: session_fork → tool_call(delegating_agent) → delegate_agent_completed
+        //   2. Parent tool calls: tool_pre → tool_pre → ... → orchestrator_complete
+        // Both drive the same overlay and transcript entry components.
+
         if (msg.type === 'session_fork') {
+          // Child session spawned — start tracking with agent name
           const agentName = msg.agent || 'sub-agent';
           delegationToolsRef.current = [];
           delegationStartRef.current = Date.now();
@@ -1608,26 +1622,41 @@ body {
           setDelegationState({ active: true, agentName, startTime: Date.now(), tools: [] });
           if (onStartRef.current) onStartRef.current(msg);
 
-        } else if (msg.type === 'tool_call' && msg.delegating_agent) {
-          if (msg.tool_name) {
-            delegationToolsRef.current = [...delegationToolsRef.current, msg.tool_name];
-            setDelegationState((prev) => ({ ...prev, tools: [...delegationToolsRef.current] }));
+        } else if (msg.type === 'tool_pre' || (msg.type === 'tool_call' && msg.delegating_agent)) {
+          // Tool activity — either parent session (tool_pre) or child session (tool_call + delegating_agent)
+          const toolName = msg.tool_name;
+          if (toolName) {
+            // If this is the first tool and no delegation is active yet, start the overlay
+            if (!delegationStartRef.current) {
+              delegationToolsRef.current = [];
+              delegationStartRef.current = Date.now();
+              delegationAgentRef.current = msg.delegating_agent || null;
+              setDelegationState({ active: true, agentName: msg.delegating_agent || null, startTime: Date.now(), tools: [toolName] });
+              delegationToolsRef.current = [toolName];
+              if (onStartRef.current) onStartRef.current(msg);
+            } else {
+              delegationToolsRef.current = [...delegationToolsRef.current, toolName];
+              setDelegationState((prev) => ({ ...prev, tools: [...delegationToolsRef.current] }));
+            }
           }
 
-        } else if (msg.type === 'delegate_agent_completed') {
-          const startMs = delegationStartRef.current;
-          const elapsed = startMs ? ((Date.now() - startMs) / 1000).toFixed(1) : '0.0';
-          const snapshot = {
-            agentName: delegationAgentRef.current || 'sub-agent',
-            tools:     [...delegationToolsRef.current],
-            elapsed,
-            error:     msg.error || false,
-          };
-          setDelegationState({ active: false, agentName: null, startTime: null, tools: [] });
-          delegationToolsRef.current = [];
-          delegationStartRef.current = null;
-          delegationAgentRef.current = null;
-          if (onEndRef.current) onEndRef.current(snapshot);
+        } else if (msg.type === 'delegate_agent_completed' || msg.type === 'orchestrator_complete') {
+          // Activity finished — either child completed or parent session done
+          if (delegationStartRef.current) {
+            const startMs = delegationStartRef.current;
+            const elapsed = startMs ? ((Date.now() - startMs) / 1000).toFixed(1) : '0.0';
+            const snapshot = {
+              agentName: delegationAgentRef.current || null,
+              tools:     [...delegationToolsRef.current],
+              elapsed,
+              error:     msg.error || false,
+            };
+            setDelegationState({ active: false, agentName: null, startTime: null, tools: [] });
+            delegationToolsRef.current = [];
+            delegationStartRef.current = null;
+            delegationAgentRef.current = null;
+            if (onEndRef.current) onEndRef.current(snapshot);
+          }
         }
 
         if (onEventRef.current) onEventRef.current(msg);
