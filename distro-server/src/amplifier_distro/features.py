@@ -44,11 +44,8 @@ FOUNDATION_GIT_URI = "git+https://github.com/microsoft/amplifier-foundation@main
 
 
 def provider_bundle_uri(provider: Provider) -> str:
-    """Build the full git URI for a provider's foundation sub-bundle."""
-    # Convert "foundation:providers/anthropic-sonnet" to full git URI
-    # so it can be included in the overlay without namespace timing issues
-    _, path = provider.include.split(":", 1)
-    return f"{FOUNDATION_GIT_URI}#subdirectory={path}.yaml"
+    """Return the git URI for a provider's bundle."""
+    return provider.include
 
 
 PROVIDERS: dict[str, Provider] = {
@@ -56,7 +53,7 @@ PROVIDERS: dict[str, Provider] = {
         id="anthropic",
         name="Anthropic",
         description="Claude models (Sonnet, Opus, Haiku)",
-        include="foundation:providers/anthropic-sonnet",
+        include=f"{FOUNDATION_GIT_URI}#subdirectory=providers/anthropic-sonnet.yaml",
         key_prefix="sk-ant-",
         env_var="ANTHROPIC_API_KEY",
         default_model="claude-sonnet-4-5",
@@ -73,7 +70,7 @@ PROVIDERS: dict[str, Provider] = {
         id="openai",
         name="OpenAI",
         description="GPT models",
-        include="foundation:providers/openai-gpt",
+        include=f"{FOUNDATION_GIT_URI}#subdirectory=providers/openai-gpt.yaml",
         key_prefix="sk-",
         env_var="OPENAI_API_KEY",
         default_model="gpt-5.2",
@@ -86,7 +83,7 @@ PROVIDERS: dict[str, Provider] = {
         id="google",
         name="Google",
         description="Gemini models (Pro, Flash)",
-        include="foundation:providers/gemini-pro",
+        include=f"{AMPLIFIER_START_URI}#subdirectory=providers/gemini-pro.yaml",
         key_prefix="AI",
         env_var="GOOGLE_API_KEY",
         default_model="gemini-2.5-pro",
@@ -99,7 +96,7 @@ PROVIDERS: dict[str, Provider] = {
         id="xai",
         name="xAI",
         description="Grok models via xAI API",
-        include="foundation:providers/openai-gpt",
+        include=f"{FOUNDATION_GIT_URI}#subdirectory=providers/openai-gpt.yaml",
         key_prefix="xai-",
         env_var="XAI_API_KEY",
         default_model="grok-3",
@@ -113,7 +110,7 @@ PROVIDERS: dict[str, Provider] = {
         id="ollama",
         name="Ollama",
         description="Local models via Ollama",
-        include="foundation:providers/ollama",
+        include=f"{AMPLIFIER_START_URI}#subdirectory=providers/ollama.yaml",
         key_prefix="",
         env_var="OLLAMA_HOST",
         default_model="llama3.1",
@@ -126,7 +123,7 @@ PROVIDERS: dict[str, Provider] = {
         id="azure",
         name="Azure OpenAI",
         description="OpenAI models via Azure",
-        include="foundation:providers/azure-openai",
+        include=f"{AMPLIFIER_START_URI}#subdirectory=providers/azure-openai.yaml",
         key_prefix="",
         env_var="AZURE_OPENAI_API_KEY",
         default_model="gpt-5.2",

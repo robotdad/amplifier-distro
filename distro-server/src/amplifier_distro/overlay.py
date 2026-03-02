@@ -26,11 +26,40 @@ from .features import AMPLIFIER_START_URI, Provider, provider_bundle_uri
 
 logger = logging.getLogger(__name__)
 
-# Kept here ONLY for migration — it is never added to new overlays.
-_STALE_SESSION_NAMING_URI = (
+# ---------------------------------------------------------------------------
+#  Overlay migration tables
+# ---------------------------------------------------------------------------
+# URIs that should be silently removed (no replacement).
+_STALE_URIS: list[str] = [
+    # Session-naming hook was removed from the ecosystem.
+    (
+        "git+https://github.com/microsoft/amplifier-foundation@main"
+        "#subdirectory=modules/hooks-session-naming"
+    ),
+]
+
+# URIs that moved — old URI → current URI.  The overlay migration
+# replaces these in-place so the include order is preserved.
+_URI_REPLACEMENTS: dict[str, str] = {
+    # Distro bundle moved from monorepo subdirectory to its own repo.
+    "git+https://github.com/microsoft/amplifier-distro@main#subdirectory=bundle": (
+        AMPLIFIER_START_URI
+    ),
+    # Provider bundles that never existed in foundation; now live in the
+    # distro bundle repo.
     "git+https://github.com/microsoft/amplifier-foundation@main"
-    "#subdirectory=modules/hooks-session-naming"
-)
+    "#subdirectory=providers/gemini-pro.yaml": (
+        f"{AMPLIFIER_START_URI}#subdirectory=providers/gemini-pro.yaml"
+    ),
+    "git+https://github.com/microsoft/amplifier-foundation@main"
+    "#subdirectory=providers/ollama.yaml": (
+        f"{AMPLIFIER_START_URI}#subdirectory=providers/ollama.yaml"
+    ),
+    "git+https://github.com/microsoft/amplifier-foundation@main"
+    "#subdirectory=providers/azure-openai.yaml": (
+        f"{AMPLIFIER_START_URI}#subdirectory=providers/azure-openai.yaml"
+    ),
+}
 
 
 def overlay_dir() -> Path:
@@ -89,6 +118,61 @@ def get_includes(data: dict[str, Any] | None = None) -> list[str]:
     ]
 
 
+def _migrate_includes(data: dict[str, Any]) -> bool:
+    """Apply all known URI migrations to overlay includes.
+
+    1. Replace moved URIs with their current equivalents (in-place).
+    2. Remove stale URIs that have no replacement.
+
+    Returns ``True`` if any entries were changed.
+    """
+    includes: list[Any] = data.get("includes", [])
+    changed = False
+
+    # Pass 1: in-place replacements for moved URIs.
+    for i, entry in enumerate(includes):
+        uri = entry.get("bundle") if isinstance(entry, dict) else entry
+        if uri in _URI_REPLACEMENTS:
+            new_uri = _URI_REPLACEMENTS[uri]
+            includes[i] = {"bundle": new_uri} if isinstance(entry, dict) else new_uri
+            changed = True
+
+    # Pass 2: remove entries with no replacement.
+    original_len = len(includes)
+    for uri in _STALE_URIS:
+        includes = _filter_includes(includes, uri)
+    if len(includes) < original_len:
+        changed = True
+
+    data["includes"] = includes
+    return changed
+
+
+def migrate_overlay() -> None:
+    """Apply one-time migrations to the overlay bundle.
+
+    Replaces moved include URIs with their current equivalents,
+    removes stale URIs, and ensures the distro bundle include
+    is present.  No-op when no overlay exists or no changes are
+    needed.
+    """
+    data = read_overlay()
+    if not data:
+        return
+
+    changed = _migrate_includes(data)
+
+    # Ensure the current distro bundle URI is present.
+    current_uris = set(get_includes(data))
+    if AMPLIFIER_START_URI not in current_uris:
+        data.setdefault("includes", []).insert(0, {"bundle": AMPLIFIER_START_URI})
+        changed = True
+
+    if changed:
+        _write_overlay(data)
+        logger.info("Overlay migrated: stale URIs replaced with current equivalents")
+
+
 def ensure_overlay(provider: Provider) -> Path:
     """Create or update the overlay with the distro bundle + a provider.
 
@@ -112,12 +196,9 @@ def ensure_overlay(provider: Provider) -> Path:
             ],
         }
     else:
-        # Strip stale entries first so current_uris is clean before checking
-        # what's already present (otherwise the stale URI would appear in
-        # current_uris and block re-insertion of legitimate URIs).
-        data["includes"] = _filter_includes(
-            data.get("includes", []), _STALE_SESSION_NAMING_URI
-        )
+        # Migrate stale entries first so current_uris is clean before
+        # checking what's already present.
+        _migrate_includes(data)
         current_uris = set(get_includes(data))
         includes = data["includes"]
 
