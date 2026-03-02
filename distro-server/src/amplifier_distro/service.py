@@ -143,14 +143,16 @@ def _find_distro_binary() -> str | None:
 
     Resolution order:
     1. Path(sys.argv[0]).resolve() — the binary currently running this command.
-       More reliable than PATH lookup in multi-venv environments.
+       Only accepted if the resolved filename is exactly "amp-distro", preventing
+       pytest, python, uv, or deprecated amp-distro-server from being embedded
+       in generated service unit files.
     2. shutil.which("amp-distro") — fallback for PATH-based lookup.
 
     Returns:
         Absolute path string, or None if not found.
     """
     candidate = Path(sys.argv[0]).resolve()
-    if candidate.exists():
+    if candidate.exists() and candidate.name == "amp-distro":
         return str(candidate)
     return shutil.which("amp-distro")
 
@@ -224,7 +226,12 @@ def _generate_systemd_server_unit(distro_bin: str) -> str:
         [Service]
         Type=simple
         ExecStart={distro_bin} serve --host 127.0.0.1 --port {port}
-        Restart=on-failure
+        Restart=always
+        # Note: Restart=always (not on-failure) is intentional. The watchdog triggers
+        # restarts by exiting with code 1, which causes systemd to restart the watchdog
+        # unit. On clean exits (e.g. SIGTERM from the watchdog supervisor path), systemd
+        # must also restart. systemctl stop still works — systemd sets an inhibit-restart
+        # flag on admin stops that overrides this policy.
         RestartSec=5
         StartLimitIntervalSec=60
         StartLimitBurst=5
@@ -587,6 +594,7 @@ def _generate_launchd_watchdog_plist(distro_bin: str) -> str:
             <array>
                 <string>{distro_bin}</string>
                 <string>watchdog</string>
+                <string>--supervised</string>
                 <string>--host</string>
                 <string>127.0.0.1</string>
                 <string>--port</string>

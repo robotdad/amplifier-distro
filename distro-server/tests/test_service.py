@@ -80,9 +80,15 @@ class TestSystemdServerUnit:
         assert "Service" in parser
         assert "Install" in parser
 
-    def test_restart_on_failure(self) -> None:
+    def test_restart_always(self) -> None:
+        """Server unit must use Restart=always so watchdog-triggered restarts work.
+
+        Restart=on-failure doesn't trigger on exit 0 (uvicorn graceful SIGTERM).
+        systemctl stop still works — systemd sets an inhibit-restart flag on
+        admin stops that overrides this policy.
+        """
         parser = self._parse(self._generate())
-        assert parser["Service"]["Restart"] == "on-failure"
+        assert parser["Service"]["Restart"] == "always"
 
     def test_after_network(self) -> None:
         parser = self._parse(self._generate())
@@ -173,7 +179,7 @@ class TestLaunchdServerPlist:
 
     def test_valid_xml(self) -> None:
         """Generated plist must parse as valid XML."""
-        ET.fromstring(self._generate())
+        ET.fromstring(self._generate())  # noqa: S314
 
     def test_correct_label(self) -> None:
         content = self._generate()
@@ -213,7 +219,7 @@ class TestLaunchdWatchdogPlist:
         return _generate_launchd_watchdog_plist(distro_bin)
 
     def test_valid_xml(self) -> None:
-        ET.fromstring(self._generate())
+        ET.fromstring(self._generate())  # noqa: S314
 
     def test_watchdog_label(self) -> None:
         content = self._generate()
@@ -233,6 +239,18 @@ class TestLaunchdWatchdogPlist:
     def test_correct_distro_bin(self) -> None:
         content = self._generate("/my/custom/amp-distro")
         assert "/my/custom/amp-distro" in content
+
+    def test_watchdog_plist_contains_supervised_flag(self) -> None:
+        """Launchd watchdog plist must pass --supervised for macOS supervisor detection."""
+        content = self._generate()
+        assert "<string>--supervised</string>" in content
+
+    def test_server_plist_does_not_contain_supervised_flag(self) -> None:
+        """Server plist must NOT have --supervised — only watchdog is supervised."""
+        from amplifier_distro.service import _generate_launchd_server_plist
+
+        content = _generate_launchd_server_plist("/usr/local/bin/amp-distro")
+        assert "--supervised" not in content
 
 
 # ---------------------------------------------------------------------------
@@ -524,6 +542,40 @@ class TestFindDistroBinary:
             result = _find_distro_binary()
 
         assert result is None
+
+    def test_rejects_wrong_binary_name(self, tmp_path: Path) -> None:
+        """argv[0] with wrong name (pytest, python, uv) must be rejected."""
+        from amplifier_distro.service import _find_distro_binary
+
+        wrong_binary = tmp_path / "pytest"
+        wrong_binary.touch()
+        wrong_binary.chmod(0o755)
+
+        with (
+            patch.object(sys, "argv", [str(wrong_binary)]),
+            patch.object(shutil, "which", return_value="/usr/local/bin/amp-distro"),
+        ):
+            result = _find_distro_binary()
+
+        # Must fall back to shutil.which, not return the pytest path
+        assert result == "/usr/local/bin/amp-distro"
+
+    def test_rejects_deprecated_amp_distro_server(self, tmp_path: Path) -> None:
+        """amp-distro-server on disk must not end up as the resolved binary."""
+        from amplifier_distro.service import _find_distro_binary
+
+        deprecated = tmp_path / "amp-distro-server"
+        deprecated.touch()
+        deprecated.chmod(0o755)
+
+        with (
+            patch.object(sys, "argv", [str(deprecated)]),
+            patch.object(shutil, "which", return_value="/usr/local/bin/amp-distro"),
+        ):
+            result = _find_distro_binary()
+
+        assert result == "/usr/local/bin/amp-distro"
+        assert "amp-distro-server" not in (result or "")
 
 
 # ---------------------------------------------------------------------------
