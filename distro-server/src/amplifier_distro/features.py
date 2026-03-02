@@ -39,7 +39,7 @@ class Provider:
 
 
 # --- Ecosystem URIs ---
-AMPLIFIER_START_URI = "git+https://github.com/microsoft/amplifier-distro@main#subdirectory=bundle"
+AMPLIFIER_START_URI = "git+https://github.com/microsoft/amplifier-bundle-distro@main"
 FOUNDATION_GIT_URI = "git+https://github.com/microsoft/amplifier-foundation@main"
 
 
