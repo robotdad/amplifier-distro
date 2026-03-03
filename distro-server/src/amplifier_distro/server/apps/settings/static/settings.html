@@ -5,40 +5,24 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Amplifier - Settings</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+
+<!-- Theme init (must be first) -->
+<script src="/static/theme-init.js"></script>
+
+<!-- Monoton font -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Monoton&display=swap" rel="stylesheet">
+
+<!-- Shared theme -->
+<link rel="stylesheet" href="/static/amplifier-theme.css">
+
 <style>
 /* ------------------------------------------------------------------ */
-/*  Design Tokens (shared with wizard.html / quickstart.html)          */
+/*  Settings-Specific Styles                                          */
 /* ------------------------------------------------------------------ */
-:root {
-  --bg-primary: #111827;
-  --bg-secondary: #1f2937;
-  --bg-card: #374151;
-  --text-primary: #f9fafb;
-  --text-secondary: #9ca3af;
-  --accent: #3b82f6;
-  --accent-hover: #2563eb;
-  --success: #22c55e;
-  --warning: #f59e0b;
-  --error: #ef4444;
-  --border: #4b5563;
-  --radius: 8px;
-  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-}
 
-/* ------------------------------------------------------------------ */
-/*  Reset & Base                                                       */
-/* ------------------------------------------------------------------ */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-html, body {
-  height: 100%;
-  font-family: var(--font);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
-}
-
+/* Override body for settings layout */
 body {
   display: flex;
   flex-direction: column;
@@ -819,7 +803,7 @@ body {
 </head>
 <body>
 
-<div class="settings-card" id="settingsCard">
+<div class="settings-card fade-in" id="settingsCard">
   <div class="loading-state" id="loadingState">
     <div class="loading-spinner"></div>
     Loading settings...
@@ -1078,8 +1062,12 @@ function render() {
 /*  Header                                                             */
 /* ------------------------------------------------------------------ */
 function renderHeader() {
-  return '<div class="header">'
-    + '<h1>Amplifier Settings</h1>'
+  return '<div class="neon-logo-wrapper">'
+    + '<h1 class="neon-logo neon-logo-sm">AMPLIFIER</h1>'
+    + '<p style="color: var(--text-secondary); font-size: 1.1rem; margin-top: 8px;">Settings</p>'
+    + '</div>'
+    + '<div class="header" style="margin-top: 24px; margin-bottom: 0;">'
+    + '<div></div>'
     + '<div class="header-actions">'
     + '<a href="/">Back to Dashboard</a>'
     + '</div>'

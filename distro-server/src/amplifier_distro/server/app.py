@@ -34,6 +34,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.staticfiles import StaticFiles
 
 from amplifier_distro import conventions
 from amplifier_distro.doctor import CheckStatus, run_diagnostics
@@ -577,6 +578,15 @@ class DistroServer:
 
         _static_dir = Path(__file__).parent / "static"
         _landing_page = _static_dir / "index.html"
+
+        # Serve shared static assets (CSS, JS, fonts) at root level.
+        # Must be mounted AFTER explicit route handlers so /favicon.svg
+        # and / still take precedence via their @app.get decorators.
+        self._app.mount(
+            "/static",
+            StaticFiles(directory=_static_dir),
+            name="shared-static",
+        )
 
         @self._app.get("/favicon.svg", response_model=None, include_in_schema=False)
         async def favicon():

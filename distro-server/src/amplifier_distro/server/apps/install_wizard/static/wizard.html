@@ -5,40 +5,24 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Amplifier - Install Wizard</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+
+<!-- Theme init (must be first) -->
+<script src="/static/theme-init.js"></script>
+
+<!-- Monoton font -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Monoton&display=swap" rel="stylesheet">
+
+<!-- Shared theme -->
+<link rel="stylesheet" href="/static/amplifier-theme.css">
+
 <style>
 /* ------------------------------------------------------------------ */
-/*  Design Tokens                                                      */
+/*  Wizard-Specific Styles                                            */
 /* ------------------------------------------------------------------ */
-:root {
-  --bg-primary: #111827;
-  --bg-secondary: #1f2937;
-  --bg-card: #374151;
-  --text-primary: #f9fafb;
-  --text-secondary: #9ca3af;
-  --accent: #3b82f6;
-  --accent-hover: #2563eb;
-  --success: #22c55e;
-  --warning: #f59e0b;
-  --error: #ef4444;
-  --border: #4b5563;
-  --radius: 8px;
-  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-}
 
-/* ------------------------------------------------------------------ */
-/*  Reset & Base                                                       */
-/* ------------------------------------------------------------------ */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-html, body {
-  height: 100%;
-  font-family: var(--font);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
-}
-
+/* Override body for wizard layout */
 body {
   display: flex;
   flex-direction: column;
@@ -573,6 +557,13 @@ input:focus, select:focus {
 <body>
 
 <!-- ============================================================== -->
+<!--  Neon Logo                                                       -->
+<!-- ============================================================== -->
+<div class="neon-logo-wrapper">
+  <h1 class="neon-logo neon-logo-sm">AMPLIFIER</h1>
+</div>
+
+<!-- ============================================================== -->
 <!--  Step Indicator                                                  -->
 <!-- ============================================================== -->
 <div class="step-indicator" id="stepIndicator"></div>
@@ -580,7 +571,7 @@ input:focus, select:focus {
 <!-- ============================================================== -->
 <!--  Wizard Card                                                     -->
 <!-- ============================================================== -->
-<div class="wizard-card" id="wizardCard"></div>
+<div class="wizard-card fade-in" id="wizardCard"></div>
 
 <script>
 /* ================================================================== */

@@ -1,0 +1,423 @@
+/* ================================================================== */
+/*  CSS Variable Theming System (from kepler)                          */
+/* ================================================================== */
+
+/* Light mode (default) */
+:root {
+  /* Backgrounds */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8f8f8;
+  --bg-tertiary: #f0f0f0;
+  --bg-card: #ffffff;
+  --bg-overlay: rgba(0, 0, 0, 0.4);
+  
+  /* Text hierarchy */
+  --text-primary: #171717;
+  --text-secondary: #404040;
+  --text-muted: #555555;
+  --text-disabled: #888888;
+  
+  /* Borders */
+  --border: #d4d4d4;
+  --border-muted: #e5e5e5;
+  
+  /* Accents */
+  --accent: #4f5bd5;
+  --accent-hover: #3d4abf;
+  --accent-bg: rgba(79, 91, 213, 0.1);
+  --accent-glow: rgba(79, 91, 213, 0.3);
+  
+  /* Neon glow (magenta for light mode visibility) */
+  --neon-primary: #ff00de;
+  --neon-secondary: #fff;
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+  
+  /* Font */
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+/* Dark mode */
+.dark {
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #141414;
+  --bg-tertiary: #1c1c1c;
+  --bg-card: #242424;
+  --bg-overlay: rgba(0, 0, 0, 0.7);
+  
+  --text-primary: #e6e6e6;
+  --text-secondary: #a3a3a3;
+  --text-muted: #6b6b6b;
+  --text-disabled: #4a4a4a;
+  
+  --border: #363636;
+  --border-muted: #242424;
+  
+  --accent: #5b6cf0;
+  --accent-hover: #7b8af5;
+  --accent-bg: rgba(91, 108, 240, 0.15);
+  --accent-glow: rgba(91, 108, 240, 0.4);
+  
+  --neon-primary: #ff00de;
+  --neon-secondary: #fff;
+  
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.5);
+}
+
+/* ================================================================== */
+/*  Reset & Base                                                      */
+/* ================================================================== */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  height: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  height: 100%;
+  font-family: var(--font);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.6;
+  display: flex;
+  justify-content: center;
+  padding: 48px 20px;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* ================================================================== */
+/*  Custom Scrollbar                                                  */
+/* ================================================================== */
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 5px;
+  border: 2px solid var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* ================================================================== */
+/*  Container                                                         */
+/* ================================================================== */
+
+.container {
+  max-width: 720px;
+  width: 100%;
+  animation: fadeIn 0.6s ease-out;
+}
+
+/* ================================================================== */
+/*  Neon Logo (from kepler)                                           */
+/* ================================================================== */
+
+.logo-wrapper {
+  text-align: center;
+  margin-bottom: 16px;
+  animation: logoEntrance 0.8s ease-out;
+}
+
+.neon-logo {
+  font-family: 'Monoton', cursive;
+  font-size: clamp(2.5rem, 8vw, 4.5rem);
+  color: var(--neon-secondary);
+  text-shadow:
+    0 0   5px var(--neon-secondary),
+    0 0  10px var(--neon-secondary),
+    0 0  20px var(--neon-primary),
+    0 0  40px var(--neon-primary),
+    0 0  80px var(--neon-primary),
+    0 0 120px var(--neon-primary);
+  letter-spacing: 0.05em;
+  margin: 0;
+  padding: 24px 0;
+}
+
+.tagline {
+  color: var(--text-secondary);
+  font-size: 15px;
+  margin-bottom: 48px;
+  text-align: center;
+  animation: slideUp 0.6s ease-out 0.2s both;
+}
+
+/* ================================================================== */
+/*  Section Titles                                                    */
+/* ================================================================== */
+
+.section-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+  animation: slideUp 0.6s ease-out 0.3s both;
+}
+
+/* ================================================================== */
+/*  App Cards with Staggered Animation                                */
+/* ================================================================== */
+
+.apps-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 48px;
+}
+
+.app-card {
+  display: block;
+  padding: 24px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+  animation: slideUp 0.6s ease-out both;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Staggered animation delays */
+.app-card:nth-child(1) { animation-delay: 0.4s; }
+.app-card:nth-child(2) { animation-delay: 0.45s; }
+.app-card:nth-child(3) { animation-delay: 0.5s; }
+.app-card:nth-child(4) { animation-delay: 0.55s; }
+
+.app-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, var(--accent) 0%, #8b5cf6 100%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  z-index: 0;
+}
+
+.app-card:hover {
+  border-color: var(--accent);
+  background: var(--bg-card);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg), 0 0 20px var(--accent-glow);
+}
+
+.app-card:hover::before {
+  opacity: 0.05;
+}
+
+.app-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.app-icon {
+  font-size: 32px;
+  margin-bottom: 12px;
+  display: block;
+  filter: grayscale(0.3);
+  transition: filter 0.2s ease, transform 0.2s ease;
+}
+
+.app-card:hover .app-icon {
+  filter: grayscale(0);
+  transform: scale(1.1);
+}
+
+.app-name {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  color: var(--text-primary);
+}
+
+.app-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* ================================================================== */
+/*  Links Section                                                     */
+/* ================================================================== */
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 32px;
+  justify-content: center;
+  animation: slideUp 0.6s ease-out 0.6s both;
+}
+
+.links a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 14px;
+  transition: color 0.2s ease;
+  position: relative;
+}
+
+.links a::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transition: transform 0.2s ease;
+}
+
+.links a:hover {
+  color: var(--accent);
+}
+
+.links a:hover::after {
+  transform: scaleX(1);
+}
+
+.links .sep {
+  color: var(--border);
+  user-select: none;
+}
+
+/* ================================================================== */
+/*  Footer                                                            */
+/* ================================================================== */
+
+.footer {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+  animation: fadeIn 0.6s ease-out 0.7s both;
+}
+
+.footer a {
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.footer a:hover {
+  color: var(--accent);
+}
+
+/* ================================================================== */
+/*  Animations                                                        */
+/* ================================================================== */
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes logoEntrance {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes glow {
+  0% {
+    box-shadow: 0 0 20px var(--accent-glow);
+  }
+  100% {
+    box-shadow: 0 0 30px var(--accent-glow);
+  }
+}
+
+/* ================================================================== */
+/*  Accessibility - Reduce Motion                                     */
+/* ================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  
+  .neon-logo {
+    text-shadow:
+      0 0  10px var(--neon-secondary),
+      0 0  20px var(--neon-primary);
+  }
+}
+
+/* ================================================================== */
+/*  Mobile Responsiveness                                             */
+/* ================================================================== */
+
+@media (max-width: 640px) {
+  body {
+    padding: 32px 16px;
+  }
+  
+  .neon-logo {
+    font-size: 2.5rem;
+  }
+  
+  .apps-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  
+  .app-card {
+    padding: 20px;
+  }
+}
+
+@media (max-width: 400px) {
+  .neon-logo {
+    font-size: 2rem;
+  }
+}
