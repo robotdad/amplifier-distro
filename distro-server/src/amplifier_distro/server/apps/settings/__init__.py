@@ -10,7 +10,6 @@ Routes:
     POST /features  - Toggle a feature on/off
     POST /tier      - Set feature tier level
     POST /provider  - Add/update provider (key entry or use existing key)
-    GET  /bridges   - Bridge configuration status
 """
 
 from __future__ import annotations
@@ -401,12 +400,6 @@ async def change_provider(req: ProviderRequest) -> dict[str, Any]:
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return result
-
-
-@router.get("/bridges")
-async def get_bridges() -> dict[str, Any]:
-    """Status of all communication bridges (Slack, Voice)."""
-    return {"bridges": detect_bridges()}
 
 
 # --- Distro Settings CRUD ---
