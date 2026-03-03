@@ -6,31 +6,22 @@
 <title>Amplifier Voice</title>
 <script src="/apps/voice/static/vendor.js"></script>
 <script src="/apps/voice/static/connection-health.mjs"></script>
+<script src="/static/theme-init.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Monoton&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/amplifier-theme.css">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
 /* ------------------------------------------------------------------ */
-/*  CSS: dark theme, system-ui font, flex column layout, 900px max     */
+/*  Voice app body - centered single-task layout                       */
 /* ------------------------------------------------------------------ */
-*, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
-
-html, body {
-  height: 100%;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: #1a1a1a;
-  color: #f0f0f0;
-  line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
-}
-
 body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  min-height: 100vh;
   padding: 24px 16px;
+  min-height: 100vh;
 }
 
 /* ------------------------------------------------------------------ */
@@ -42,6 +33,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  animation: fadeIn 0.4s ease;
 }
 
 /* ------------------------------------------------------------------ */
@@ -52,13 +44,20 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 16px 0;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid var(--border);
 }
 
 .app-title {
-  font-size: 22px;
-  font-weight: 700;
-  color: #f0f0f0;
+  font-family: 'Monoton', cursive;
+  font-size: clamp(1.5rem, 4vw, 2.2rem);
+  color: var(--neon-secondary);
+  text-shadow:
+    0 0   5px var(--neon-secondary),
+    0 0  10px var(--neon-secondary),
+    0 0  20px var(--neon-primary),
+    0 0  40px var(--neon-primary),
+    0 0  80px var(--neon-primary);
+  letter-spacing: 0.05em;
 }
 
 /* ------------------------------------------------------------------ */
@@ -76,26 +75,26 @@ body {
 }
 
 .status-badge.idle {
-  background: #2a2a2a;
-  color: #888;
-  border-color: #333;
+  background: var(--border);
+  color: var(--text-muted);
+  border-color: var(--border);
 }
 
 .status-badge.connecting {
   background: #2a2200;
-  color: #f59e0b;
+  color: var(--warning);
   border-color: #5a4000;
 }
 
 .status-badge.connected {
   background: #002a12;
-  color: #22c55e;
+  color: var(--success);
   border-color: #005025;
 }
 
 .status-badge.disconnected {
   background: #2a0000;
-  color: #ef4444;
+  color: var(--error);
   border-color: #500000;
 }
 
@@ -123,7 +122,7 @@ body {
   border: 1px solid #500000;
   border-radius: 8px;
   padding: 12px 16px;
-  color: #ef4444;
+  color: var(--error);
   font-size: 14px;
   display: flex;
   align-items: center;
@@ -138,8 +137,8 @@ body {
   min-height: 300px;
   max-height: 500px;
   overflow-y: auto;
-  background: #111;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 16px;
   display: flex;
@@ -152,7 +151,7 @@ body {
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: #555;
+  color: var(--text-disabled, var(--text-muted));
   font-size: 14px;
   font-style: italic;
 }
@@ -175,7 +174,7 @@ body {
 
 .bubble-label {
   font-size: 11px;
-  color: #666;
+  color: var(--text-muted);
   margin-bottom: 4px;
   text-transform: capitalize;
 }
@@ -189,15 +188,15 @@ body {
 }
 
 .message-bubble.user .bubble-text {
-  background: #1d4ed8;
+  background: var(--accent-hover);
   color: #fff;
   border-bottom-right-radius: 4px;
 }
 
 .message-bubble.assistant .bubble-text {
-  background: #222;
-  color: #e5e5e5;
-  border: 1px solid #333;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
   border-bottom-left-radius: 4px;
 }
 
@@ -210,12 +209,12 @@ body {
 /* Divider between injected history and the live session */
 .history-divider {
   text-align: center;
-  color: #555;
+  color: var(--text-disabled, var(--text-muted));
   font-size: 0.7rem;
   letter-spacing: 0.05em;
   padding: 6px 0;
   margin: 4px 0;
-  border-top: 1px solid #2a2a2a;
+  border-top: 1px solid var(--border);
 }
 
 /* ------------------------------------------------------------------ */
@@ -230,7 +229,7 @@ body {
   padding: 12px 24px;
   border: none;
   border-radius: 8px;
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: var(--font);
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
@@ -244,12 +243,12 @@ body {
 }
 
 .btn-start {
-  background: #2563eb;
+  background: var(--accent);
   color: #fff;
 }
 
 .btn-start:hover:not(:disabled) {
-  background: #1d4ed8;
+  background: var(--accent-hover);
 }
 
 .btn-disconnect {
@@ -269,7 +268,7 @@ body {
   border: 1px solid #5a3800;
   border-radius: 8px;
   padding: 10px 16px;
-  color: #f59e0b;
+  color: var(--warning);
   font-size: 13px;
   font-weight: 600;
   display: flex;
@@ -286,7 +285,7 @@ body {
   font-size: 12px;
   font-weight: 600;
   background: #2a0000;
-  color: #ef4444;
+  color: var(--error);
   border: 1px solid #500000;
 }
 
@@ -422,9 +421,9 @@ body {
 /*  Connection Health Panel  (Task 5.5)                               */
 /* ------------------------------------------------------------------ */
 .health-panel {
-  border: 1px solid #2a2a2a;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #111;
+  background: var(--bg-secondary);
   overflow: hidden;
 }
 
@@ -437,16 +436,16 @@ body {
   user-select: none;
   font-size: 13px;
   font-weight: 600;
-  color: #aaa;
-  background: #1a1a1a;
+  color: var(--text-secondary);
+  background: var(--bg-primary);
   border: none;
   width: 100%;
   text-align: left;
 }
 
 .health-panel-header:hover {
-  background: #222;
-  color: #ddd;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
 .health-panel-header-left {
@@ -467,11 +466,11 @@ body {
   align-items: center;
   gap: 10px;
   font-size: 13px;
-  color: #ccc;
+  color: var(--text-secondary);
 }
 
 .health-label {
-  color: #666;
+  color: var(--text-muted);
   width: 130px;
   flex-shrink: 0;
 }
@@ -500,7 +499,7 @@ body {
 
 .warning-badge.stale {
   background: #2a1800;
-  color: #f59e0b;
+  color: var(--warning);
   border: 1px solid #5a3800;
 }
 
@@ -512,7 +511,7 @@ body {
 
 .warning-badge.session_limit {
   background: #2a0000;
-  color: #ef4444;
+  color: var(--error);
   border: 1px solid #500000;
 }
 
@@ -524,13 +523,13 @@ body {
 }
 
 .health-strategy label {
-  color: #666;
+  color: var(--text-muted);
 }
 
 .health-strategy select {
-  background: #222;
-  color: #ddd;
-  border: 1px solid #333;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
   border-radius: 5px;
   padding: 4px 8px;
   font-size: 13px;
@@ -541,9 +540,9 @@ body {
 /*  Session Picker  (Task 5.6)                                        */
 /* ------------------------------------------------------------------ */
 .session-picker {
-  border: 1px solid #333;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #111;
+  background: var(--bg-secondary);
   padding: 12px;
   display: flex;
   flex-direction: column;
@@ -553,7 +552,7 @@ body {
 .session-picker-title {
   font-size: 13px;
   font-weight: 600;
-  color: #aaa;
+  color: var(--text-secondary);
   margin-bottom: 4px;
 }
 
@@ -562,8 +561,8 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 8px 10px;
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
   border-radius: 6px;
   gap: 12px;
 }
@@ -578,7 +577,7 @@ body {
 
 .session-title {
   font-size: 13px;
-  color: #e5e5e5;
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -586,13 +585,13 @@ body {
 
 .session-status {
   font-size: 11px;
-  color: #666;
+  color: var(--text-muted);
   text-transform: capitalize;
 }
 
 .session-date {
   font-size: 11px;
-  color: #555;
+  color: var(--text-disabled, var(--text-muted));
 }
 
 .btn-resume {
@@ -633,36 +632,36 @@ body {
 }
 
 .btn-mic {
-  background: #222;
-  color: #e5e5e5;
-  border: 1px solid #333;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
   flex: 1;
 }
 
 .btn-mic:hover:not(:disabled) {
-  background: #333;
+  background: var(--border);
 }
 
 .btn-mic.muted {
   background: #2a0000;
-  color: #ef4444;
+  color: var(--error);
   border-color: #500000;
 }
 
 .btn-pause {
-  background: #222;
-  color: #e5e5e5;
-  border: 1px solid #333;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
   flex: 1;
 }
 
 .btn-pause:hover:not(:disabled) {
-  background: #333;
+  background: var(--border);
 }
 
 .btn-pause.paused {
   background: #2a1800;
-  color: #f59e0b;
+  color: var(--warning);
   border-color: #5a3800;
 }
 </style>
@@ -2139,7 +2138,7 @@ body {
     return html`
       <div id="app">
         <div class="app-header">
-          <div class="app-title">Amplifier Voice</div>
+          <div class="app-title">AMPLIFIER VOICE</div>
           <div style="display:flex;align-items:center;gap:8px;">
             ${muted && html`<span class="muted-badge">🎙 Muted</span>`}
             <div class=${'status-badge ' + rtcState}>
