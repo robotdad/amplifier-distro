@@ -2218,7 +2218,7 @@
           }
         </div>
         ${(() => {
-          const hasSession = !!session.sessionId && (session.turnCount || session.messageCount || 0) > 0;
+          const hasSession = !!session.sessionId;
           if (!hasSession) return null;
           return html`
             <div class=${'session-card-actions' + (menuOpen ? ' menu-open' : '')}>
