@@ -424,6 +424,88 @@ class TestSyntheticStreaming:
         assert full == "Object payload thinking"
 
 
+class TestConnectionRegistry:
+    """Verify the module-level _active_connections registry and broadcast_to_all."""
+
+    def test_registry_symbols_exported(self):
+        """_active_connections set and broadcast_to_all coroutine must be importable."""
+        from amplifier_distro.server.apps.chat.connection import (
+            _active_connections,
+            broadcast_to_all,
+        )
+
+        assert isinstance(_active_connections, set)
+        assert callable(broadcast_to_all)
+
+    @pytest.mark.asyncio
+    async def test_broadcast_sends_json_to_active_connection(self):
+        """broadcast_to_all sends JSON-encoded payload to every active connection."""
+        import json
+
+        from amplifier_distro.server.apps.chat.connection import (
+            _active_connections,
+            broadcast_to_all,
+        )
+
+        mock_ws = MagicMock()
+        mock_ws.send_text = AsyncMock()
+
+        fake_conn = MagicMock()
+        fake_conn._ws = mock_ws
+
+        _active_connections.add(fake_conn)
+        try:
+            await broadcast_to_all({"type": "session_renamed", "session_id": "s1", "name": "New"})
+        finally:
+            _active_connections.discard(fake_conn)
+
+        mock_ws.send_text.assert_awaited_once()
+        payload = mock_ws.send_text.call_args[0][0]
+        assert json.loads(payload) == {"type": "session_renamed", "session_id": "s1", "name": "New"}
+
+    @pytest.mark.asyncio
+    async def test_broadcast_tolerates_failed_connection(self):
+        """broadcast_to_all must not raise when a send fails."""
+        from amplifier_distro.server.apps.chat.connection import (
+            _active_connections,
+            broadcast_to_all,
+        )
+
+        mock_ws = MagicMock()
+        mock_ws.send_text = AsyncMock(side_effect=Exception("disconnected"))
+
+        fake_conn = MagicMock()
+        fake_conn._ws = mock_ws
+
+        _active_connections.add(fake_conn)
+        try:
+            # Must not raise even when the underlying send fails
+            await broadcast_to_all({"type": "ping"})
+        finally:
+            _active_connections.discard(fake_conn)
+
+    @pytest.mark.asyncio
+    async def test_run_registers_and_deregisters_connection(self):
+        """run() adds self to _active_connections then removes it on exit."""
+        from amplifier_distro.server.apps.chat.connection import (
+            _active_connections,
+            ChatConnection,
+        )
+
+        # WS that disconnects immediately after accept (no auth, no messages)
+        ws = make_ws([])
+        backend = make_backend()
+        config = make_config(api_key=None)
+
+        conn = ChatConnection(ws, backend, config)
+        assert conn not in _active_connections  # pre-condition
+
+        await conn.run()
+
+        # After run() completes the connection must be gone from the registry
+        assert conn not in _active_connections
+
+
 class TestOriginCheck:
     """Verify _auth_handshake origin restriction logic."""
 

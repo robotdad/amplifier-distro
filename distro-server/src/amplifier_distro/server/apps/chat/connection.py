@@ -38,6 +38,19 @@ _STOP: object = object()
 # Session IDs: alphanumeric, hyphens, underscores only (path traversal prevention)
 _VALID_SESSION_ID = re.compile(r"^[a-zA-Z0-9_\-]+$")
 
+# Module-level registry of all active WebSocket connections.
+_active_connections: set[ChatConnection] = set()
+
+
+async def broadcast_to_all(message: dict) -> None:
+    """Send a JSON message to every connected chat WebSocket client."""
+    import json as _json
+
+    payload = _json.dumps(message)
+    for conn in list(_active_connections):
+        with contextlib.suppress(Exception):
+            await conn._ws.send_text(payload)
+
 
 class ChatConnection:
     """Manages one WebSocket connection: auth, receive loop, event fanout."""
@@ -71,6 +84,7 @@ class ChatConnection:
         fanout_task = asyncio.create_task(
             self._event_fanout_loop(), name="event_fanout_loop"
         )
+        _active_connections.add(self)
         try:
             await self._receive_loop()
         except WebSocketDisconnect:
@@ -78,6 +92,7 @@ class ChatConnection:
         except Exception:  # noqa: BLE001
             logger.warning("ChatConnection receive error", exc_info=True)
         finally:
+            _active_connections.discard(self)
             # Cancel in-flight execute tasks
             for task in list(self._tasks):
                 task.cancel()
@@ -395,9 +410,11 @@ class ChatConnection:
         hook_names = [h.get("module", "unknown") for h in hooks]
 
         # Extract agent names (filter structural keys)
-        agent_names = sorted(
-            k for k in agents if k not in ("dirs", "include", "inline")
-        ) if isinstance(agents, dict) else []
+        agent_names = (
+            sorted(k for k in agents if k not in ("dirs", "include", "inline"))
+            if isinstance(agents, dict)
+            else []
+        )
 
         # Orchestrator / context
         orch = session.get("orchestrator", "unknown")

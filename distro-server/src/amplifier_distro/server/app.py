@@ -488,6 +488,75 @@ class DistroServer:
                     content={"error": str(e), "type": type(e).__name__},
                 )
 
+        @self._core_router.patch(
+            "/sessions/{session_id}",
+            response_model=None,
+            dependencies=[Depends(verify_api_key)],
+        )
+        async def rename_session(session_id: str, request: Request) -> JSONResponse:
+            """Rename a session by updating its metadata."""
+            from amplifier_distro.server.services import get_services
+
+            try:
+                body = await request.json()
+            except Exception:  # noqa: BLE001
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "Invalid JSON body"},
+                )
+
+            name = body.get("name") if isinstance(body, dict) else None
+            if not isinstance(name, str) or not name.strip():
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "name must be a non-empty string"},
+                )
+
+            name = name.strip()
+            if len(name) > 100:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "name must be 100 characters or fewer"},
+                )
+
+            try:
+                services = get_services()
+                found = await services.backend.update_session_metadata(
+                    session_id, {"name": name}
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Session rename failed: %s", e, exc_info=True)
+                return JSONResponse(
+                    status_code=500,
+                    content={"error": str(e), "type": type(e).__name__},
+                )
+
+            if not found:
+                return JSONResponse(
+                    status_code=404,
+                    content={"error": f"Session {session_id} not found"},
+                )
+
+            # Broadcast to all connected chat WebSocket clients
+            try:
+                from amplifier_distro.server.apps.chat.connection import (
+                    broadcast_to_all,
+                )
+
+                await broadcast_to_all(
+                    {
+                        "type": "session_renamed",
+                        "session_id": session_id,
+                        "name": name,
+                    }
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("WebSocket broadcast skipped", exc_info=True)
+
+            return JSONResponse(
+                content={"session_id": session_id, "name": name},
+            )
+
     def _setup_memory_routes(self) -> None:
         """Set up Memory API routes for cross-interface memory storage."""
 

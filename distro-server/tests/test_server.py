@@ -590,3 +590,139 @@ class TestHostThreading:
     def test_create_server_passes_host(self):
         server = create_server(host="192.168.1.50")
         assert server.app.state.host == "192.168.1.50"
+
+
+class TestPatchSessionsRoute:
+    """Verify PATCH /api/sessions/{session_id} for inline session renaming."""
+
+    def _make_mock_services(self, found: bool = True):
+        from unittest.mock import AsyncMock, MagicMock
+
+        mock_services = MagicMock()
+        mock_services.backend.update_session_metadata = AsyncMock(return_value=found)
+        return mock_services
+
+    def test_patch_sessions_route_exists(self):
+        """PATCH /api/sessions/{session_id} must be registered."""
+        server = DistroServer()
+        paths = [getattr(r, "path", None) for r in server.app.routes]
+        assert "/api/sessions/{session_id}" in paths
+
+    def test_patch_returns_400_for_missing_name_key(self):
+        """Body with no 'name' key returns 400."""
+        server = DistroServer()
+        client = TestClient(server.app)
+        resp = client.patch("/api/sessions/sess-123", json={})
+        assert resp.status_code == 400
+
+    def test_patch_returns_400_for_empty_name(self):
+        """Whitespace-only name returns 400."""
+        server = DistroServer()
+        client = TestClient(server.app)
+        resp = client.patch("/api/sessions/sess-123", json={"name": "   "})
+        assert resp.status_code == 400
+        assert "name" in resp.json().get("error", "")
+
+    def test_patch_returns_400_for_name_too_long(self):
+        """Name longer than 100 chars returns 400."""
+        server = DistroServer()
+        client = TestClient(server.app)
+        resp = client.patch("/api/sessions/sess-123", json={"name": "x" * 101})
+        assert resp.status_code == 400
+
+    def test_patch_returns_400_for_invalid_json(self):
+        """Non-JSON body returns 400."""
+        server = DistroServer()
+        client = TestClient(server.app)
+        resp = client.patch(
+            "/api/sessions/sess-123",
+            content=b"not-json",
+            headers={"Content-Type": "application/json"},
+        )
+        assert resp.status_code == 400
+
+    def test_patch_returns_404_when_session_not_found(self, monkeypatch):
+        """Returns 404 when backend reports session not found."""
+        mock_svc = self._make_mock_services(found=False)
+        monkeypatch.setattr(
+            "amplifier_distro.server.services.get_services",
+            lambda: mock_svc,
+        )
+        server = DistroServer()
+        client = TestClient(server.app)
+        resp = client.patch("/api/sessions/sess-999", json={"name": "NewName"})
+        assert resp.status_code == 404
+        assert "sess-999" in resp.json().get("error", "")
+
+    def test_patch_renames_session_returns_200(self, monkeypatch):
+        """Returns 200 with session_id and name on success."""
+        mock_svc = self._make_mock_services(found=True)
+        monkeypatch.setattr(
+            "amplifier_distro.server.services.get_services",
+            lambda: mock_svc,
+        )
+        server = DistroServer()
+        client = TestClient(server.app)
+        resp = client.patch("/api/sessions/sess-abc", json={"name": "My Project"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["session_id"] == "sess-abc"
+        assert data["name"] == "My Project"
+
+    def test_patch_strips_whitespace_from_name(self, monkeypatch):
+        """Leading/trailing whitespace in name is stripped before saving."""
+        mock_svc = self._make_mock_services(found=True)
+        monkeypatch.setattr(
+            "amplifier_distro.server.services.get_services",
+            lambda: mock_svc,
+        )
+        server = DistroServer()
+        client = TestClient(server.app)
+        resp = client.patch("/api/sessions/sess-abc", json={"name": "  Trimmed  "})
+        assert resp.status_code == 200
+        assert resp.json()["name"] == "Trimmed"
+
+    def test_patch_calls_backend_update_metadata(self, monkeypatch):
+        """Verifies update_session_metadata is called with correct args."""
+        mock_svc = self._make_mock_services(found=True)
+        monkeypatch.setattr(
+            "amplifier_distro.server.services.get_services",
+            lambda: mock_svc,
+        )
+        server = DistroServer()
+        client = TestClient(server.app)
+        client.patch("/api/sessions/sess-xyz", json={"name": "Alpha"})
+        mock_svc.backend.update_session_metadata.assert_awaited_once_with(
+            "sess-xyz", {"name": "Alpha"}
+        )
+
+    def test_patch_requires_auth_when_key_configured(self, monkeypatch):
+        """Returns 401 without bearer token when API key is set."""
+        monkeypatch.setattr(
+            "amplifier_distro.server.app._get_configured_api_key",
+            lambda: "secret-key",
+        )
+        server = DistroServer()
+        client = TestClient(server.app)
+        resp = client.patch("/api/sessions/sess-abc", json={"name": "Name"})
+        assert resp.status_code == 401
+
+    def test_patch_accepts_correct_token(self, monkeypatch):
+        """Returns non-401 with correct bearer token when API key is set."""
+        mock_svc = self._make_mock_services(found=True)
+        monkeypatch.setattr(
+            "amplifier_distro.server.app._get_configured_api_key",
+            lambda: "secret-key",
+        )
+        monkeypatch.setattr(
+            "amplifier_distro.server.services.get_services",
+            lambda: mock_svc,
+        )
+        server = DistroServer()
+        client = TestClient(server.app)
+        resp = client.patch(
+            "/api/sessions/sess-abc",
+            json={"name": "Name"},
+            headers={"Authorization": "Bearer secret-key"},
+        )
+        assert resp.status_code != 401

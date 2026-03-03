@@ -327,10 +327,45 @@
     .session-card.active { border-left-color: var(--accent-blue); background: var(--bg-tertiary); }
 
     .session-card-name { font-size: 12px; font-weight: 500; color: var(--text-primary); }
+    .session-card-name.auto-named { color: var(--text-secondary); }
     .session-card-cwd { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .session-card-cwd-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
     .session-card-line-text { min-width: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .session-card-meta { font-size: 11px; color: var(--text-muted); display: flex; gap: 6px; align-items: center; margin-top: 2px; }
+    .session-card-name-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
+    .session-card-name-row .session-card-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .session-rename-trigger {
+      background: none; border: none; padding: 4px; margin: -4px; cursor: pointer;
+      color: var(--text-muted); opacity: 0; transition: opacity 0.15s;
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 44px; min-height: 44px; flex-shrink: 0;
+    }
+    .session-card:hover .session-rename-trigger,
+    .session-card.active .session-rename-trigger,
+    .session-card:focus .session-rename-trigger,
+    .session-card:focus-within .session-rename-trigger { opacity: 1; }
+    .session-rename-trigger:hover { color: var(--accent-blue); }
+    .session-name-input {
+      font-size: 12px; font-weight: 500; color: var(--text-primary);
+      background: transparent; border: none; border-bottom: 1px solid var(--accent-blue);
+      outline: none; padding: 0; margin: 0; width: 100%; font-family: inherit;
+    }
+    .session-name-editing .session-edit-actions { display: inline-flex; align-items: center; gap: 2px; }
+    .session-edit-actions { display: none; }
+    .session-edit-actions button {
+      background: none; border: none; padding: 2px 4px; cursor: pointer;
+      color: var(--text-muted); font-size: 12px;
+    }
+    .session-edit-actions button:hover { color: var(--accent-blue); }
+    @keyframes shake { 0%, 100% { transform: translateX(0); } 20%, 60% { transform: translateX(-4px); } 40%, 80% { transform: translateX(4px); } }
+    .session-name-shake { animation: shake 0.3s ease-in-out; }
+    @keyframes accent-flash { 0% { background-color: transparent; } 50% { background-color: rgba(59, 130, 246, 0.15); } 100% { background-color: transparent; } }
+    .session-name-saved { animation: accent-flash 0.2s ease-in-out; }
+    @media (prefers-reduced-motion: reduce) {
+      .session-name-shake { animation: none; }
+      .session-name-saved { animation: none; background-color: rgba(59, 130, 246, 0.15); transition: background-color 0.1s; }
+    }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
     .session-stale-badge {
       display: inline-flex;
       align-items: center;
@@ -1212,6 +1247,7 @@
     const haystack = [
       sessionKey,
       s.sessionId,
+      s.name,
       s.cwd,
       s.bundle,
       s.lastUserMessage,
@@ -1717,7 +1753,16 @@
     `;
   }
 
-  function SessionCard({ session, isActive, onClick }) {
+  function SessionCard({ session, isActive, onClick, setSessions }) {
+    const [isEditing, setIsEditing] = useState(false);
+    const [editValue, setEditValue] = useState('');
+    const [shaking, setShaking] = useState(false);
+    const [saved, setSaved] = useState(false);
+    const [announcement, setAnnouncement] = useState('');
+    const inputRef = useRef(null);
+    const originalNameRef = useRef('');
+    const longPressTimerRef = useRef(null);
+
     const statusIcon =
       session.status === 'running' ? '⟳ ' :
       session.status === 'connecting' ? '◌ ' :
@@ -1737,12 +1782,155 @@
           ? 'new session'
           : 'session'
       );
+
+    const startEditing = useCallback((e) => {
+      if (e) e.stopPropagation();
+      originalNameRef.current = session.name || '';
+      setEditValue(session.name || '');
+      setIsEditing(true);
+      setAnnouncement('Editing session name');
+    }, [session.name]);
+
+    const cancelEditing = useCallback(() => {
+      setIsEditing(false);
+      setEditValue('');
+      setAnnouncement('Rename cancelled');
+    }, []);
+
+    const saveEdit = useCallback(async () => {
+      const trimmed = editValue.trim();
+      if (!trimmed) {
+        setShaking(true);
+        setTimeout(() => setShaking(false), 300);
+        return;
+      }
+      if (trimmed === originalNameRef.current) {
+        cancelEditing();
+        return;
+      }
+      // Optimistic update
+      setSessions(prev => {
+        const next = new Map(prev);
+        for (const [key, s] of next) {
+          if (s.sessionId === session.sessionId) {
+            next.set(key, { ...s, name: trimmed });
+            break;
+          }
+        }
+        return next;
+      });
+      setIsEditing(false);
+      setSaved(true);
+      setAnnouncement('Session renamed to ' + trimmed);
+      setTimeout(() => setSaved(false), 300);
+      try {
+        const resp = await fetch(`/api/sessions/${session.sessionId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: trimmed }),
+        });
+        if (!resp.ok) throw new Error('PATCH failed');
+      } catch (err) {
+        // Rollback on error
+        setSessions(prev => {
+          const next = new Map(prev);
+          for (const [key, s] of next) {
+            if (s.sessionId === session.sessionId) {
+              next.set(key, { ...s, name: originalNameRef.current });
+              break;
+            }
+          }
+          return next;
+        });
+      }
+    }, [editValue, session.sessionId, setSessions, cancelEditing]);
+
+    const handleKeyDown = useCallback((e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        saveEdit();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        cancelEditing();
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        saveEdit();
+      }
+    }, [saveEdit, cancelEditing]);
+
+    const handleCardKeyDown = useCallback((e) => {
+      if (e.key === 'F2' && !isEditing) {
+        e.preventDefault();
+        startEditing(e);
+      }
+    }, [isEditing, startEditing]);
+
+    const handleTouchStart = useCallback((e) => {
+      // Suppress native long-press behaviour (browser context menu, iOS text-selection
+      // handles) so our custom 500 ms handler is the only thing that fires.
+      e.preventDefault();
+      longPressTimerRef.current = setTimeout(() => {
+        longPressTimerRef.current = null;
+        startEditing(null);
+      }, 500);
+    }, [startEditing]);
+    const handleTouchEnd = useCallback(() => {
+      if (longPressTimerRef.current) {
+        // Short tap: cancel the long-press timer and manually fire the click
+        // action, because e.preventDefault() on touchstart stops the browser
+        // from synthesising a click event.
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+        if (!isEditing && onClick) onClick();
+      }
+    }, [isEditing, onClick]);
+    const handleTouchMove = useCallback(() => {
+      if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+    }, []);
+    // Suppress the browser's native context menu on right-click / long-press
+    // (belt-and-suspenders alongside the touchstart preventDefault).
+    const handleContextMenu = useCallback((e) => {
+      e.preventDefault();
+    }, []);
+
+    useEffect(() => {
+      if (isEditing && inputRef.current) {
+        inputRef.current.focus();
+        inputRef.current.select();
+      }
+    }, [isEditing]);
+
     return html`
-      <div class=${'session-card' + (isActive ? ' active' : '')} onClick=${onClick}>
-        <div class="session-card-name">
-          ${statusIcon}
-          ${sessionName}
-          ${session.pendingApproval ? html`<${Icon} name="bell" className="sm" />` : ''}
+      <div class=${'session-card' + (isActive ? ' active' : '') + (isEditing ? ' session-name-editing' : '') + (saved ? ' session-name-saved' : '')} onClick=${isEditing ? null : onClick} onKeyDown=${handleCardKeyDown} onTouchStart=${handleTouchStart} onTouchEnd=${handleTouchEnd} onTouchMove=${handleTouchMove} onContextMenu=${handleContextMenu} tabindex="0">
+        <div class="session-card-name-row">
+          <div class=${'session-card-name' + (!session.name ? ' auto-named' : '') + (shaking ? ' session-name-shake' : '')}>
+            ${statusIcon}
+            ${isEditing
+              ? html`<input
+                  ref=${inputRef}
+                  class="session-name-input"
+                  value=${editValue}
+                  onInput=${(e) => setEditValue(e.target.value)}
+                  onKeyDown=${handleKeyDown}
+                  onClick=${(e) => e.stopPropagation()}
+                  aria-describedby="session-rename-hint"
+                />
+                <span id="session-rename-hint" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)">Press Enter to save, Escape to cancel</span>`
+              : html`${sessionName}${session.pendingApproval ? html`<${Icon} name="bell" className="sm" />` : ''}`
+            }
+          </div>
+          ${isEditing
+            ? html`<span class="session-edit-actions">
+                <button onClick=${(e) => { e.stopPropagation(); saveEdit(); }} title="Save">✓</button>
+                <button onClick=${(e) => { e.stopPropagation(); cancelEditing(); }} title="Cancel">✕</button>
+              </span>`
+            : html`<button
+                class="session-rename-trigger"
+                onClick=${startEditing}
+                title="Rename session"
+                aria-label="Rename session"
+              >✏</button>`
+          }
         </div>
         <div class="session-card-cwd session-card-cwd-row" title=${session.cwd || '~'}>
           <${Icon} name="folder" className="sm" />
@@ -1755,6 +1943,7 @@
             : null}
         </div>
         ${preview ? html`<div class="session-card-cwd" title=${session.lastUserMessage || ''}>${preview}</div>` : null}
+        <div aria-live="polite" class="sr-only">${announcement}</div>
       </div>
     `;
   }
@@ -2306,6 +2495,20 @@
           });
         }
 
+        if (msg.type === 'session_renamed') {
+          setSessions(prev => {
+            const next = new Map(prev);
+            for (const [key, s] of next) {
+              if (s.sessionId === msg.session_id) {
+                next.set(key, { ...s, name: msg.name });
+                break;
+              }
+            }
+            return next;
+          });
+          return;
+        }
+
         if (msg.type === 'session_fork') {
           applySessionForkLineage(msg);
         }
@@ -2626,6 +2829,19 @@
             content: 'Cancellation requested…',
             streaming: false, order: orderCounterRef.current++,
           }]);
+          break;
+
+        case 'session_renamed':
+          setSessions(prev => {
+            const next = new Map(prev);
+            for (const [key, s] of next) {
+              if (s.sessionId === msg.session_id) {
+                next.set(key, { ...s, name: msg.name });
+                break;
+              }
+            }
+            return next;
+          });
           break;
 
         case 'pong':
@@ -3786,6 +4002,7 @@
                 session=${session}
                 isActive=${key === activeKey}
                 onClick=${() => switchSession(key)}
+                setSessions=${setSessions}
               />
             </div>
           </div>

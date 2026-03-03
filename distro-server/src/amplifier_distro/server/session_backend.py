@@ -23,7 +23,10 @@ from typing import Any, Protocol, runtime_checkable
 
 from amplifier_distro.conventions import AMPLIFIER_HOME, PROJECTS_DIR
 from amplifier_distro.features import AMPLIFIER_START_URI
-from amplifier_distro.metadata_persistence import register_metadata_hooks
+from amplifier_distro.metadata_persistence import (
+    register_metadata_hooks,
+    write_metadata,
+)
 from amplifier_distro.server.spawn_registration import register_spawning
 from amplifier_distro.transcript_persistence import register_transcript_hooks
 
@@ -161,6 +164,10 @@ class SessionBackend(Protocol):
         """List all active sessions managed by this backend."""
         ...
 
+    async def update_session_metadata(self, session_id: str, updates: dict) -> bool:
+        """Update metadata for a session. Returns True if found and written."""
+        ...
+
 
 class MockBackend:
     """Mock backend for testing and simulation.
@@ -240,6 +247,17 @@ class MockBackend:
         if session_id in self._sessions:
             self._sessions[session_id].is_active = False
         self.calls.append({"method": "end_session", "session_id": session_id})
+
+    async def update_session_metadata(self, session_id: str, updates: dict) -> bool:
+        """Record the call and return True (testing stub)."""
+        self.calls.append(
+            {
+                "method": "update_session_metadata",
+                "session_id": session_id,
+                "updates": updates,
+            }
+        )
+        return True
 
     async def get_session_info(self, session_id: str) -> SessionInfo | None:
         return self._sessions.get(session_id)
@@ -918,6 +936,41 @@ class FoundationBackend:
 
         if handle:
             await handle.cleanup()
+
+    async def update_session_metadata(self, session_id: str, updates: dict) -> bool:
+        """Update metadata for a session. Returns True if found and written.
+
+        Active sessions: resolves session dir via the handle's project_id.
+        Inactive sessions: scans ~/.amplifier/projects/ (same as _find_transcript).
+        """
+        # Fast path: active session with a known handle
+        handle = self._sessions.get(session_id)
+        if handle is not None:
+            session_dir = (
+                Path(AMPLIFIER_HOME).expanduser()
+                / PROJECTS_DIR
+                / handle.project_id
+                / "sessions"
+                / session_id
+            )
+            if session_dir.exists():
+                write_metadata(session_dir, updates)
+                return True
+
+        # Slow path: scan all project directories (inactive/history sessions)
+        projects_dir = Path(AMPLIFIER_HOME).expanduser() / PROJECTS_DIR
+        if not projects_dir.exists():
+            return False
+
+        for project_dir in projects_dir.iterdir():
+            if not project_dir.is_dir():
+                continue
+            session_dir = project_dir / "sessions" / session_id
+            if session_dir.exists():
+                write_metadata(session_dir, updates)
+                return True
+
+        return False
 
     async def stop(self) -> None:
         """Gracefully stop all session workers.

@@ -1020,3 +1020,118 @@ class TestMockBackendNewMethods:
         q: asyncio.Queue = asyncio.Queue()
         await backend.resume_session("s", "~", event_queue=q)
         assert any(c["method"] == "resume_session" for c in backend.calls)
+
+
+class TestUpdateSessionMetadata:
+    """Verify update_session_metadata on MockBackend and Protocol compliance."""
+
+    async def test_mock_backend_update_session_metadata_returns_true(self):
+        """MockBackend.update_session_metadata records the call and returns True."""
+        from amplifier_distro.server.session_backend import MockBackend
+
+        backend = MockBackend()
+        result = await backend.update_session_metadata(
+            "sess-001", {"name": "My Session"}
+        )
+
+        assert result is True
+        assert any(
+            c["method"] == "update_session_metadata" and c["session_id"] == "sess-001"
+            for c in backend.calls
+        )
+
+    async def test_mock_backend_update_records_updates_dict(self):
+        """MockBackend records the full updates dict in the call log."""
+        from amplifier_distro.server.session_backend import MockBackend
+
+        backend = MockBackend()
+        await backend.update_session_metadata("sess-002", {"name": "Renamed"})
+
+        call = next(
+            c for c in backend.calls if c["method"] == "update_session_metadata"
+        )
+        assert call["updates"] == {"name": "Renamed"}
+
+    async def test_protocol_has_update_session_metadata(self):
+        """SessionBackend Protocol must declare update_session_metadata."""
+        from amplifier_distro.server.session_backend import SessionBackend
+
+        assert hasattr(SessionBackend, "update_session_metadata")
+
+
+class TestFoundationBackendUpdateSessionMetadata:
+    """Verify FoundationBackend.update_session_metadata.
+
+    Covers active, inactive, and missing session scenarios.
+    """
+
+    async def test_active_session_writes_metadata(self, bridge_backend, tmp_path):
+        """Active session: resolves dir via handle, calls write_metadata."""
+        handle = _make_mock_handle("sess-active-001")
+        handle.project_id = "proj-a"
+        bridge_backend._sessions["sess-active-001"] = handle
+
+        # Create the session directory under projects/ (PROJECTS_DIR = "projects")
+        session_dir = tmp_path / "projects" / "proj-a" / "sessions" / "sess-active-001"
+        session_dir.mkdir(parents=True)
+
+        from amplifier_distro.server.session_backend import FoundationBackend
+
+        with (
+            patch(
+                "amplifier_distro.server.session_backend.AMPLIFIER_HOME", str(tmp_path)
+            ),
+            patch(
+                "amplifier_distro.server.session_backend.write_metadata"
+            ) as mock_write,
+        ):
+            result = await FoundationBackend.update_session_metadata(
+                bridge_backend, "sess-active-001", {"name": "Renamed"}
+            )
+
+        assert result is True
+        mock_write.assert_called_once()
+        call_args = mock_write.call_args
+        assert call_args[0][1] == {"name": "Renamed"}
+
+    async def test_inactive_session_scans_disk(self, bridge_backend, tmp_path):
+        """Inactive session: falls back to disk scan like _find_transcript."""
+        # No handle in _sessions — session is inactive
+        session_dir = (
+            tmp_path / "projects" / "proj-x" / "sessions" / "sess-inactive-001"
+        )
+        session_dir.mkdir(parents=True)
+
+        from amplifier_distro.server.session_backend import FoundationBackend
+
+        with (
+            patch(
+                "amplifier_distro.server.session_backend.AMPLIFIER_HOME", str(tmp_path)
+            ),
+            patch(
+                "amplifier_distro.server.session_backend.write_metadata"
+            ) as mock_write,
+        ):
+            result = await FoundationBackend.update_session_metadata(
+                bridge_backend, "sess-inactive-001", {"name": "Offline Rename"}
+            )
+
+        assert result is True
+        mock_write.assert_called_once()
+
+    async def test_missing_session_returns_false(self, bridge_backend, tmp_path):
+        """Session not found anywhere: returns False."""
+        from amplifier_distro.server.session_backend import FoundationBackend
+
+        # Create empty projects dir — no session directories inside
+        projects_dir = tmp_path / "projects"
+        projects_dir.mkdir(parents=True, exist_ok=True)
+
+        with patch(
+            "amplifier_distro.server.session_backend.AMPLIFIER_HOME", str(tmp_path)
+        ):
+            result = await FoundationBackend.update_session_metadata(
+                bridge_backend, "sess-nonexistent", {"name": "Ghost"}
+            )
+
+        assert result is False
