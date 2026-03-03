@@ -14,6 +14,7 @@ import contextlib
 import hmac
 import logging
 import re
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from starlette.websockets import WebSocketDisconnect
@@ -70,6 +71,10 @@ class ChatConnection:
         # keeps strong refs to fire-and-forget tasks so GC can't collect them
         self._tasks: set[asyncio.Task] = set()
         self._active_execution: asyncio.Task | None = None
+        # Hook unregister callable -- mirrors VoiceConnection._hook_unregister.
+        # Called on disconnect to remove stale hooks from the coordinator and
+        # clear _wired_sessions so the next reconnect re-registers fresh hooks.
+        self._hook_unregister: Callable[[], None] | None = None
         # tracks which local block indices received at least one delta
         self._seen_deltas: set[int] = set()
 
@@ -102,12 +107,41 @@ class ChatConnection:
             fanout_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await fanout_task
+            # Unregister hooks so stale closures don't push to the dead queue.
+            # This clears _wired_sessions so the next reconnect re-registers
+            # fresh hooks against the new queue (mirrors VoiceConnection._cleanup_hook).
+            self._cleanup_hook()
             # Keep session handles alive on disconnect so they can be resumed
             # after refresh/new tab via resume_session_id.
             if self._session_id:
                 with contextlib.suppress(Exception):
                     await self._backend.cancel_session(self._session_id, "graceful")
             await self.event_queue.put(_STOP)
+
+    def _cleanup_hook(self) -> None:
+        """Unregister the hook if one is registered. Always safe to call.
+
+        Mirrors VoiceConnection._cleanup_hook() -- removes stale hooks from
+        the coordinator and clears _wired_sessions so the next reconnect
+        re-registers fresh hooks against the new event queue.
+        """
+        if self._hook_unregister is not None:
+            try:
+                self._hook_unregister()
+            except Exception:  # noqa: BLE001
+                logger.warning("Error unregistering chat event hooks", exc_info=True)
+            finally:
+                self._hook_unregister = None
+
+    def _fetch_hook_unregister(self, session_id: str) -> None:
+        """Fetch and store the hook unregister callable for a session.
+
+        Called after create_session/resume_session to capture the callable
+        that _cleanup_hook() will invoke on disconnect.
+        """
+        get_unregister = getattr(self._backend, "get_hook_unregister", None)
+        if get_unregister is not None:
+            self._hook_unregister = get_unregister(session_id)
 
     async def _auth_handshake(self) -> None:
         """Validate auth token if api_key is configured.
@@ -281,6 +315,11 @@ class ChatConnection:
 
             self._session_id = session_id
             self._translator.reset()
+
+            # Fetch and store the hook unregister callable so _cleanup_hook()
+            # can remove registered hooks on disconnect (mirrors VoiceConnection).
+            self._fetch_hook_unregister(session_id)
+
             await self._ws.send_json(
                 {
                     "type": "session_created",
@@ -349,6 +388,7 @@ class ChatConnection:
             case "bundle" if args:
                 new_bundle = args[0]
                 if self._session_id:
+                    self._cleanup_hook()
                     await self._backend.cancel_session(self._session_id, "graceful")
                     with contextlib.suppress(Exception):
                         await self._backend.end_session(self._session_id)
@@ -358,10 +398,12 @@ class ChatConnection:
                 )
                 self._session_id = info.session_id
                 self._translator.reset()
+                self._fetch_hook_unregister(info.session_id)
                 return {"bundle": new_bundle, "session_id": info.session_id}
             case "cwd" if args:
                 new_cwd = args[0]
                 if self._session_id:
+                    self._cleanup_hook()
                     await self._backend.cancel_session(self._session_id, "graceful")
                     with contextlib.suppress(Exception):
                         await self._backend.end_session(self._session_id)
@@ -371,6 +413,7 @@ class ChatConnection:
                 )
                 self._session_id = info.session_id
                 self._translator.reset()
+                self._fetch_hook_unregister(info.session_id)
                 return {"cwd": new_cwd, "session_id": info.session_id}
             case "config":
                 return self._build_config_summary()

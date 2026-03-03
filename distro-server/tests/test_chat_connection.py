@@ -330,6 +330,243 @@ class TestInputValidation:
         assert "Invalid working directory" in errors[0]["error"]
 
 
+class TestHookCleanup:
+    """Tests for hook unregistration on disconnect (BUG-1, issue #59)."""
+
+    @pytest.mark.asyncio
+    async def test_hook_unregister_called_on_disconnect(self):
+        """ChatConnection must call hook_unregister on disconnect."""
+        from amplifier_distro.server.apps.chat.connection import ChatConnection
+
+        unregister_called = False
+
+        def mock_unregister():
+            nonlocal unregister_called
+            unregister_called = True
+
+        ws = make_ws(
+            [
+                {"type": "create_session", "cwd": "/tmp"},
+            ]
+        )
+        backend = make_backend()
+        backend.get_hook_unregister = MagicMock(return_value=mock_unregister)
+        config = make_config()
+
+        conn = ChatConnection(ws, backend, config)
+        await conn.run()
+
+        assert unregister_called, "hook_unregister must be called on disconnect"
+
+    @pytest.mark.asyncio
+    async def test_hook_unregister_fetched_on_create_session(self):
+        """ChatConnection must fetch hook_unregister after creating a session."""
+        from amplifier_distro.server.apps.chat.connection import ChatConnection
+
+        ws = make_ws(
+            [
+                {"type": "create_session", "cwd": "/tmp"},
+            ]
+        )
+        backend = make_backend("sess-new")
+        backend.get_hook_unregister = MagicMock(return_value=lambda: None)
+        config = make_config()
+
+        conn = ChatConnection(ws, backend, config)
+        await conn.run()
+
+        backend.get_hook_unregister.assert_called_once_with("sess-new")
+
+    @pytest.mark.asyncio
+    async def test_hook_unregister_fetched_on_resume_session(self):
+        """ChatConnection must fetch hook_unregister after resuming a session."""
+        from amplifier_distro.server.apps.chat.connection import ChatConnection
+
+        ws = make_ws(
+            [
+                {
+                    "type": "create_session",
+                    "cwd": "/tmp",
+                    "resume_session_id": "sess-resumed",
+                },
+            ]
+        )
+        backend = make_backend("sess-resumed")
+        backend.get_hook_unregister = MagicMock(return_value=lambda: None)
+        config = make_config()
+
+        conn = ChatConnection(ws, backend, config)
+        await conn.run()
+
+        backend.get_hook_unregister.assert_called_once_with("sess-resumed")
+
+    @pytest.mark.asyncio
+    async def test_hook_unregister_cleared_after_call(self):
+        """After calling hook_unregister, the reference should be cleared to None."""
+        from amplifier_distro.server.apps.chat.connection import ChatConnection
+
+        ws = make_ws(
+            [
+                {"type": "create_session", "cwd": "/tmp"},
+            ]
+        )
+        backend = make_backend()
+        backend.get_hook_unregister = MagicMock(return_value=lambda: None)
+        config = make_config()
+
+        conn = ChatConnection(ws, backend, config)
+        await conn.run()
+
+        assert conn._hook_unregister is None, (
+            "hook_unregister reference must be cleared after call"
+        )
+
+    @pytest.mark.asyncio
+    async def test_hook_unregister_error_does_not_crash(self):
+        """If hook_unregister raises, disconnect should still complete cleanly."""
+        from amplifier_distro.server.apps.chat.connection import ChatConnection
+
+        def bad_unregister():
+            raise RuntimeError("unregister failed")
+
+        ws = make_ws(
+            [
+                {"type": "create_session", "cwd": "/tmp"},
+            ]
+        )
+        backend = make_backend()
+        backend.get_hook_unregister = MagicMock(return_value=bad_unregister)
+        config = make_config()
+
+        conn = ChatConnection(ws, backend, config)
+        # Should not raise despite the bad unregister
+        await conn.run()
+
+        # Reference should still be cleared even on error
+        assert conn._hook_unregister is None
+
+    @pytest.mark.asyncio
+    async def test_no_hook_unregister_when_no_session(self):
+        """When no session is created, no hook_unregister should be called."""
+        from amplifier_distro.server.apps.chat.connection import ChatConnection
+
+        ws = make_ws([])  # disconnect immediately, no create_session
+        backend = make_backend()
+        config = make_config()
+
+        conn = ChatConnection(ws, backend, config)
+        await conn.run()
+
+        assert conn._hook_unregister is None
+
+    @pytest.mark.asyncio
+    async def test_bundle_command_cleans_old_hooks_and_wires_new(self):
+        """Switching bundle via /command must cleanup old hooks and wire new ones."""
+        from amplifier_distro.server.apps.chat.connection import ChatConnection
+
+        calls = []
+
+        def old_unregister():
+            calls.append("old_unregister")
+
+        def new_unregister():
+            calls.append("new_unregister")
+
+        ws = make_ws(
+            [
+                {"type": "create_session", "cwd": "/tmp"},
+                {"type": "command", "name": "bundle", "args": ["new-bundle"]},
+            ]
+        )
+        backend = make_backend("sess-old")
+        # First call returns old_unregister, second returns new_unregister
+        backend.get_hook_unregister = MagicMock(
+            side_effect=[old_unregister, new_unregister]
+        )
+        backend.end_session = AsyncMock()
+        # create_session returns different session IDs
+        new_info = MagicMock()
+        new_info.session_id = "sess-new"
+        new_info.working_dir = "/tmp"
+        backend.create_session = AsyncMock(side_effect=[backend.create_session.return_value, new_info])
+        # Fix: re-set the first return to the original
+        old_info = MagicMock()
+        old_info.session_id = "sess-old"
+        old_info.working_dir = "/tmp"
+        backend.create_session = AsyncMock(side_effect=[old_info, new_info])
+        backend.get_session_info = AsyncMock(return_value=old_info)
+        config = make_config()
+
+        conn = ChatConnection(ws, backend, config)
+        await conn.run()
+
+        # Old hooks should be cleaned up before new session created
+        assert "old_unregister" in calls, "Old session hooks must be unregistered"
+        # New hooks should be fetched for the replacement session
+        assert backend.get_hook_unregister.call_count == 2
+        # On final disconnect, new hooks should be cleaned up
+        assert "new_unregister" in calls, "New session hooks must be unregistered on disconnect"
+
+    @pytest.mark.asyncio
+    async def test_cwd_command_cleans_old_hooks_and_wires_new(self):
+        """Switching cwd via /command must cleanup old hooks and wire new ones."""
+        from amplifier_distro.server.apps.chat.connection import ChatConnection
+
+        unregister_calls = []
+
+        ws = make_ws(
+            [
+                {"type": "create_session", "cwd": "/tmp"},
+                {"type": "command", "name": "cwd", "args": ["/new/path"]},
+            ]
+        )
+        old_info = MagicMock()
+        old_info.session_id = "sess-old"
+        old_info.working_dir = "/tmp"
+        new_info = MagicMock()
+        new_info.session_id = "sess-new-cwd"
+        new_info.working_dir = "/new/path"
+
+        backend = make_backend()
+        backend.create_session = AsyncMock(side_effect=[old_info, new_info])
+        backend.get_session_info = AsyncMock(return_value=old_info)
+        backend.end_session = AsyncMock()
+        backend.get_hook_unregister = MagicMock(
+            side_effect=[
+                lambda: unregister_calls.append("old"),
+                lambda: unregister_calls.append("new"),
+            ]
+        )
+        config = make_config()
+
+        conn = ChatConnection(ws, backend, config)
+        await conn.run()
+
+        assert "old" in unregister_calls, "Old session hooks must be unregistered"
+        assert "new" in unregister_calls, "New session hooks must be unregistered on disconnect"
+
+    @pytest.mark.asyncio
+    async def test_works_without_get_hook_unregister_method(self):
+        """If backend lacks get_hook_unregister, disconnect should still work."""
+        from amplifier_distro.server.apps.chat.connection import ChatConnection
+
+        ws = make_ws(
+            [
+                {"type": "create_session", "cwd": "/tmp"},
+            ]
+        )
+        backend = make_backend()
+        # Explicitly remove the method (simulates older backend)
+        if hasattr(backend, "get_hook_unregister"):
+            del backend.get_hook_unregister
+        config = make_config()
+
+        conn = ChatConnection(ws, backend, config)
+        await conn.run()  # Should not raise
+
+        assert conn._hook_unregister is None
+
+
 class TestEventQueueBounded:
     def test_event_queue_has_maxsize(self):
         """event_queue must be bounded to prevent unbounded memory growth."""
