@@ -320,6 +320,25 @@ class MockBackend:
         return False
 
 
+class _QueueHolder:
+    """Mutable wrapper so hook closures can have their target queue swapped.
+
+    Hook closures capture this holder by reference. On reconnect, swapping
+    ``holder.queue`` redirects all events to the new connection's queue
+    without re-registering hooks on the coordinator. In single-threaded
+    asyncio, no ``await`` occurs between the swap and any ``put_nowait``
+    call, so cooperative scheduling cannot interleave them.
+    """
+
+    __slots__ = ("queue",)
+
+    def __init__(self, queue: asyncio.Queue) -> None:
+        self.queue = queue
+
+    def put_nowait(self, item: Any) -> None:
+        self.queue.put_nowait(item)
+
+
 class FoundationBackend:
     """Real backend using amplifier-foundation for Amplifier sessions.
 
@@ -344,6 +363,9 @@ class FoundationBackend:
         # double-registration on page refresh / resume)
         self._wired_sessions: set[str] = set()
         self._event_forwarders: dict[str, Callable[[dict], None] | None] = {}
+        # Queue holders: mutable wrappers so hook closures can be retargeted
+        # on reconnect without re-registering hooks on the coordinator.
+        self._queue_holders: dict[str, _QueueHolder] = {}
 
     async def _load_bundle(self, bundle_name: str | None = None) -> Any:
         """Load and prepare a bundle via foundation.
@@ -371,28 +393,42 @@ class FoundationBackend:
 
         Called from create_session() and resume_session() when event_queue
         is provided. All three closures push (event_name, data) tuples
-        to the same queue.
+        to the same queue via a _QueueHolder indirection.
+
+        On reconnect (session already in _wired_sessions), swaps the queue
+        reference in the existing holder so all hook closures instantly
+        target the new queue without re-registration on the coordinator.
 
         Returns an unregister callable that removes all registered hooks and
-        removes the session from _wired_sessions, so the next call (on
-        reconnect) re-registers fresh hooks against the new queue.
-
-        Guards against double hook registration on page refresh / resume:
-        hooks are only registered once per session; subsequent calls update
-        only the approval system (which needs the new queue).
+        removes the session from _wired_sessions.
         """
         from amplifier_distro.server.protocol_adapters import (
             ApprovalSystem,
             QueueDisplaySystem,
         )
 
-        _q = event_queue
         coordinator = session.coordinator
 
         if session_id in self._wired_sessions:
-            # Already wired — update approval system only (new queue connection).
-            # Don't re-register hooks; return the existing unregister callable
-            # so the caller can still clean up when it's done.
+            # Already wired — swap the queue target so existing hook closures
+            # instantly push to the new connection's queue. No hook
+            # unregister/re-register needed. Safe in single-threaded asyncio:
+            # no await between the swap and any put_nowait call.
+            holder = self._queue_holders.get(session_id)
+            if holder is not None:
+                holder.queue = event_queue
+                logger.debug(
+                    "Swapped event queue for session %s (reconnect)", session_id
+                )
+
+            # Also update display system to use the new queue
+            display = QueueDisplaySystem(event_queue)
+            if hasattr(coordinator, "set"):
+                coordinator.set("display", display)
+
+            # Update approval system — route through holder for consistency
+            # with the initial-wire path (avoids stale closure if approval
+            # system is ever cached outside the coordinator).
             def _on_approval_request_rewire(
                 request_id: str,
                 prompt: str,
@@ -401,7 +437,7 @@ class FoundationBackend:
                 default: str,
             ) -> None:
                 try:
-                    _q.put_nowait(
+                    holder.put_nowait(
                         (
                             "approval_request",
                             {
@@ -430,7 +466,12 @@ class FoundationBackend:
 
         self._wired_sessions.add(session_id)
 
-        # 1. Streaming hook — all coordinator events to queue.
+        # Create a mutable queue holder — hook closures capture this by
+        # reference, so swapping holder.queue on reconnect retargets them.
+        holder = _QueueHolder(event_queue)
+        self._queue_holders[session_id] = holder
+
+        # 1. Streaming hook — all coordinator events to queue via holder.
         # The hooks API requires an async handler returning HookResult.
         # There is no wildcard support — register for each event explicitly.
         from amplifier_core.events import ALL_EVENTS
@@ -438,7 +479,7 @@ class FoundationBackend:
 
         async def on_stream(event: str, data: dict) -> HookResult:
             try:
-                _q.put_nowait((event, data))
+                holder.put_nowait((event, data))
             except asyncio.QueueFull:
                 logger.warning("Event queue full, dropping event: %s", event)
             return HookResult(action="continue", data=data)
@@ -505,7 +546,7 @@ class FoundationBackend:
         if hasattr(coordinator, "set"):
             coordinator.set("display", display)
 
-        # 3. Approval system — approval requests to queue
+        # 3. Approval system — approval requests to queue (via holder)
         def _on_approval_request(
             request_id: str,
             prompt: str,
@@ -514,7 +555,7 @@ class FoundationBackend:
             default: str,
         ) -> None:
             try:
-                _q.put_nowait(
+                holder.put_nowait(
                     (
                         "approval_request",
                         {
@@ -546,6 +587,7 @@ class FoundationBackend:
                 with contextlib.suppress(Exception):
                     hooks.unregister(evt, fn)
             self._wired_sessions.discard(session_id)
+            self._queue_holders.pop(session_id, None)
 
         return _unregister
 
@@ -896,6 +938,7 @@ class FoundationBackend:
         self._ended_sessions.add(session_id)
         self._wired_sessions.discard(session_id)
         self._approval_systems.pop(session_id, None)
+        self._queue_holders.pop(session_id, None)
 
         # Pop handle before signalling the worker
         handle = self._sessions.pop(session_id, None)
@@ -995,6 +1038,7 @@ class FoundationBackend:
         self._worker_tasks.clear()
         self._approval_systems.clear()
         self._wired_sessions.clear()
+        self._queue_holders.clear()
 
     async def get_session_info(self, session_id: str) -> SessionInfo | None:
         handle = self._sessions.get(session_id)

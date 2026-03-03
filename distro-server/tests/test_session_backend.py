@@ -44,6 +44,8 @@ def bridge_backend():
         backend._ended_sessions = set()
         backend._approval_systems = {}
         backend._wired_sessions = set()
+        backend._queue_holders = {}
+        backend._event_forwarders = {}
         return backend
 
 
@@ -1135,3 +1137,167 @@ class TestFoundationBackendUpdateSessionMetadata:
             )
 
         assert result is False
+
+
+class TestQueueRewire:
+    """Tests for queue holder rewire on reconnect (BUG-2, issue #60)."""
+
+    def _make_wired_backend(self):
+        """Build a FoundationBackend with a wired session for testing."""
+        from unittest.mock import patch
+
+        from amplifier_distro.server.session_backend import FoundationBackend
+
+        target = "amplifier_distro.server.session_backend.FoundationBackend.__init__"
+        with patch(target) as mock_init:
+            mock_init.return_value = None
+            backend = FoundationBackend.__new__(FoundationBackend)
+            backend._bundle_name = "test-bundle"
+            backend._sessions = {}
+            backend._reconnect_locks = {}
+            backend._session_queues = {}
+            backend._worker_tasks = {}
+            backend._ended_sessions = set()
+            backend._approval_systems = {}
+            backend._wired_sessions = set()
+            backend._queue_holders = {}
+            backend._event_forwarders = {}
+        return backend
+
+    def _make_mock_session(self):
+        """Build a mock session with coordinator + hooks."""
+        session = MagicMock()
+        coordinator = MagicMock()
+        hooks = MagicMock()
+        hooks.register = MagicMock()
+        hooks.unregister = MagicMock()
+        coordinator.hooks = hooks
+        coordinator.set = MagicMock()
+        session.coordinator = coordinator
+        return session
+
+    @pytest.mark.asyncio
+    async def test_events_flow_to_new_queue_after_reconnect(self):
+        """After reconnect, on_stream must push events to the NEW queue."""
+        backend = self._make_wired_backend()
+        session = self._make_mock_session()
+        session_id = "test-rewire"
+
+        # Simulate _SessionHandle
+        handle = MagicMock()
+        handle.session = session
+        handle.hook_unregister = None
+        backend._sessions[session_id] = handle
+
+        # First wire: create with queue_a
+        queue_a = asyncio.Queue()
+        unregister = backend._wire_event_queue(session, session_id, queue_a)
+        handle.hook_unregister = unregister
+
+        # Capture the on_stream handler from the hooks.register calls
+        register_calls = session.coordinator.hooks.register.call_args_list
+        on_stream_handler = None
+        for call in register_calls:
+            args = call[0]
+            if len(args) >= 2 and callable(args[1]):
+                on_stream_handler = args[1]
+                break
+        assert on_stream_handler is not None, "on_stream hook must be registered"
+
+        # Verify events go to queue_a
+        await on_stream_handler("test:event", {"data": "first"})
+        assert queue_a.qsize() == 1
+        event = queue_a.get_nowait()
+        assert event == ("test:event", {"data": "first"})
+
+        # Reconnect: wire with queue_b (simulates page refresh)
+        queue_b = asyncio.Queue()
+        backend._wire_event_queue(session, session_id, queue_b)
+
+        # Now events should flow to queue_b, NOT queue_a
+        await on_stream_handler("test:event", {"data": "second"})
+        assert queue_b.qsize() == 1, "Events must flow to NEW queue after reconnect"
+        assert queue_a.qsize() == 0, "Old queue must NOT receive events after reconnect"
+        event = queue_b.get_nowait()
+        assert event == ("test:event", {"data": "second"})
+
+    @pytest.mark.asyncio
+    async def test_display_system_rewired_on_reconnect(self):
+        """Display system must use the new queue after reconnect."""
+        backend = self._make_wired_backend()
+        session = self._make_mock_session()
+        session_id = "test-display-rewire"
+
+        handle = MagicMock()
+        handle.session = session
+        handle.hook_unregister = None
+        backend._sessions[session_id] = handle
+
+        queue_a = asyncio.Queue()
+        unregister = backend._wire_event_queue(session, session_id, queue_a)
+        handle.hook_unregister = unregister
+
+        # Reconnect with queue_b
+        queue_b = asyncio.Queue()
+        backend._wire_event_queue(session, session_id, queue_b)
+
+        # Display system should have been re-set on coordinator
+        set_calls = session.coordinator.set.call_args_list
+        display_calls = [c for c in set_calls if c[0][0] == "display"]
+        # At least 2 display calls: one from first wire, one from reconnect
+        assert len(display_calls) >= 2, "Display system must be rewired on reconnect"
+
+    @pytest.mark.asyncio
+    async def test_queue_holder_cleaned_up_on_unregister(self):
+        """Calling unregister must remove the queue holder."""
+        backend = self._make_wired_backend()
+        session = self._make_mock_session()
+        session_id = "test-cleanup"
+
+        handle = MagicMock()
+        handle.session = session
+        handle.hook_unregister = None
+        backend._sessions[session_id] = handle
+
+        queue = asyncio.Queue()
+        unregister = backend._wire_event_queue(session, session_id, queue)
+
+        assert session_id in backend._queue_holders
+        assert session_id in backend._wired_sessions
+
+        unregister()
+
+        assert session_id not in backend._queue_holders
+        assert session_id not in backend._wired_sessions
+
+    @pytest.mark.asyncio
+    async def test_rapid_reconnect_cycles_work(self):
+        """Multiple rapid reconnects must all route events to the latest queue."""
+        backend = self._make_wired_backend()
+        session = self._make_mock_session()
+        session_id = "test-rapid"
+
+        handle = MagicMock()
+        handle.session = session
+        handle.hook_unregister = None
+        backend._sessions[session_id] = handle
+
+        # First wire
+        queue_1 = asyncio.Queue()
+        unregister = backend._wire_event_queue(session, session_id, queue_1)
+        handle.hook_unregister = unregister
+
+        # Capture on_stream
+        on_stream = session.coordinator.hooks.register.call_args_list[0][0][1]
+
+        # 5 rapid reconnects
+        latest_queue = None
+        for i in range(5):
+            latest_queue = asyncio.Queue()
+            backend._wire_event_queue(session, session_id, latest_queue)
+
+        # Events should only go to the latest queue
+        await on_stream("test:event", {"cycle": "final"})
+        assert latest_queue is not None
+        assert latest_queue.qsize() == 1
+        assert queue_1.qsize() == 0
