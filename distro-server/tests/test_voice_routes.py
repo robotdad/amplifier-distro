@@ -16,10 +16,13 @@ Test classes:
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
-from fastapi import FastAPI
 from starlette.testclient import TestClient
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
 
 import amplifier_distro.server.apps.voice as voice_module
 import amplifier_distro.server.stub as stub_module
