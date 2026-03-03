@@ -98,24 +98,28 @@ class ChatConnection:
             logger.warning("ChatConnection receive error", exc_info=True)
         finally:
             _active_connections.discard(self)
-            # Cancel in-flight execute tasks
+            # Cancel non-execution tasks only. The active execution is
+            # intentionally left running server-side so it can finish and
+            # persist its transcript. When the user reconnects, the event
+            # queue will be re-wired and events from the still-running (or
+            # completed) execution will flow to the new connection.
+            # This mirrors VoiceConnection.teardown() which does NOT cancel
+            # execution on disconnect.
             for task in list(self._tasks):
-                task.cancel()
-            if self._tasks:
-                await asyncio.gather(*self._tasks, return_exceptions=True)
+                if task is not self._active_execution:
+                    task.cancel()
+            non_exec = [t for t in self._tasks if t is not self._active_execution]
+            if non_exec:
+                await asyncio.gather(*non_exec, return_exceptions=True)
             # Stop the fanout loop and wait for it to finish
             fanout_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await fanout_task
-            # Unregister hooks so stale closures don't push to the dead queue.
-            # This clears _wired_sessions so the next reconnect re-registers
-            # fresh hooks against the new queue (mirrors VoiceConnection._cleanup_hook).
-            self._cleanup_hook()
-            # Keep session handles alive on disconnect so they can be resumed
-            # after refresh/new tab via resume_session_id.
-            if self._session_id:
-                with contextlib.suppress(Exception):
-                    await self._backend.cancel_session(self._session_id, "graceful")
+            # Do NOT call _cleanup_hook() here. Hooks are intentionally left
+            # registered so the still-running execution's events can be
+            # redirected to the new queue via QueueHolder swap on reconnect.
+            # _cleanup_hook() is still called from _dispatch_command (bundle/cwd)
+            # for explicit session replacement.
             await self.event_queue.put(_STOP)
 
     def _cleanup_hook(self) -> None:
