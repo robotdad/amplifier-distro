@@ -182,3 +182,17 @@ class TestQueueDisplaySystem:
         d = QueueDisplaySystem(q)
         d2 = d.pop_nesting()
         assert d2.nesting_depth == 0
+
+    async def test_show_message_does_not_raise_on_full_queue(self):
+        """show_message must not raise QueueFull when queue is full (issue #67)."""
+        from amplifier_distro.server.protocol_adapters import QueueDisplaySystem
+
+        q: asyncio.Queue = asyncio.Queue(maxsize=1)
+        display = QueueDisplaySystem(q)
+        # Fill the queue
+        await display.show_message("first")
+        assert q.qsize() == 1
+        # Second message should be silently dropped, not raise
+        await display.show_message("second")  # must not raise
+        # Queue should still have exactly 1 item
+        assert q.qsize() == 1

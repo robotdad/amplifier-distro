@@ -104,12 +104,15 @@ class QueueDisplaySystem:
         level: Literal["info", "warning", "error"] = "info",
         source: str = "hook",
     ) -> None:
-        self._queue.put_nowait(
-            (
-                "display_message",
-                {"message": message, "level": level, "source": source},
+        try:
+            self._queue.put_nowait(
+                (
+                    "display_message",
+                    {"message": message, "level": level, "source": source},
+                )
             )
-        )
+        except asyncio.QueueFull:
+            logger.warning("Event queue full, dropping display_message")
 
     def push_nesting(self) -> QueueDisplaySystem:
         return QueueDisplaySystem(self._queue, self._nesting_depth + 1)
