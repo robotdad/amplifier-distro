@@ -4,13 +4,14 @@ description: >
   Stage 2 runs 16 chat browser scenarios covering page load, messaging/streaming,
   session management, slash commands, CWD/preferences, and UI features (/apps/chat/)
   PLUS a cross-surface real-time awareness scenario (S17) using two simultaneous
-  browser sessions. An approval gate pauses for Slack login confirmation. Stage 3
-  runs 8 Slack-bridge scenarios. Stage 4 validates and produces a final PASS/FAIL
-  summary table.
-version: "1.3.1"
+  browser sessions PLUS 8 session-actions scenarios (S18-S25) covering overflow
+  menu guards, rename, and pin/unpin. An approval gate pauses for Slack login
+  confirmation. Stage 3 runs 8 Slack-bridge scenarios. Stage 4 validates and
+  produces a final PASS/FAIL summary table.
+version: "1.4.0"
 author: "amplifier-distro team"
 created: "2026-02-20T14:32:00Z"
-updated: "2026-02-25T19:00:00Z"
+updated: "2026-03-03T06:00:00Z"
 tags:
   - e2e
   - browser-testing
@@ -61,7 +62,7 @@ stages:
 
   # =========================================================================
   # STAGE 2: chat-tests
-  # 16 scenarios covering all core features of /apps/chat/.
+  # 25 scenarios covering all core features of /apps/chat/.
   #
   # Scenario groups:
   #   S01-S02  Page load & initial state
@@ -71,6 +72,8 @@ stages:
   #   S10-S11  New session & CWD
   #   S12-S15  Slash commands
   #   S16      Theme toggle
+  #   S17      Cross-surface real-time awareness
+  #   S18-S25  Session actions (overflow menu, rename, pin/unpin)
   # =========================================================================
   - name: "chat-tests"
     steps:
@@ -578,13 +581,166 @@ stages:
         output: "multi_surface_results"
         timeout: 600
 
+      # -------------------------------------------------------------------
+      # Step 3: Session actions (overflow menu, rename, pin/unpin)
+      # S18-S25 — dedicated browser session to isolate from S01-S16 state
+      # -------------------------------------------------------------------
+      - id: "chat-session-actions-e2e"
+        agent: "browser-tester:browser-operator"
+        prompt: |
+          You are running automated E2E browser tests for session card actions
+          (overflow menu, rename, and pin/unpin) in the amplifier-distro chat
+          surface at /apps/chat/. Follow every rule below exactly.
+
+          MANDATORY RULES
+          ---------------
+          - Use --headed on EVERY SINGLE agent-browser command. No exceptions.
+          - Use --session chat-session-actions on EVERY agent-browser command.
+          - Take a screenshot at every meaningful step. Name them descriptively.
+          - Report each scenario as exactly PASS, FAIL, or SKIP (with reason).
+          - Build on prior state — do NOT reload the page between scenarios
+            unless a scenario explicitly says to reload.
+
+          Target base URL: {{server_url}}
+
+          ================================================================
+          SETUP — Navigate and Establish State
+          ================================================================
+          Action    : Navigate to {{server_url}}/apps/chat/
+                      Wait up to 10 seconds for the page to fully render and
+                      WebSocket status dot to turn green (class "connected").
+          Screenshot: ch-18-setup.png
+
+          ================================================================
+          SCENARIO 18 — New Session Has No Overflow Menu
+          ================================================================
+          Action    : The page should have loaded with a new draft session
+                      (turn 0). Look at the session cards in the sessions panel.
+          Verify 18a: The active new session card does NOT have a
+                      "Session actions" button (the "…" overflow menu icon).
+                      The overflow menu is hidden for sessions with no
+                      completed turns.
+          Screenshot: ch-18-new-session-no-menu.png
+          PASS → new session card has no "…" overflow button visible
+          FAIL → overflow menu button is visible on a turn-0 session
+
+          ================================================================
+          SCENARIO 19 — After Sending Message, Overflow Menu Appears
+          ================================================================
+          Action    : In the message input, type and send:
+                        hello, say hi back in one word
+                      Wait up to 30 seconds for the bot to respond.
+          Verify 19a: The bot responded (at least 1 bot message visible).
+          Verify 19b: The session card now shows a "Session actions" button
+                      (the "…" overflow menu) — it appears only after the
+                      session has at least one completed turn.
+          Screenshot: ch-19-after-message-menu-visible.png
+          PASS → bot responded AND "…" overflow button now visible
+          FAIL → bot did not respond, or overflow button still hidden
+
+          ================================================================
+          SCENARIO 20 — Overflow Menu Contains Pin and Rename
+          ================================================================
+          Action    : Click the "Session actions" ("…") overflow button
+                      on the current session card to open the dropdown menu.
+          Verify 20a: The dropdown menu is visible.
+          Verify 20b: The menu contains a "Pin to top" option.
+          Verify 20c: The menu contains a "Rename" option.
+          Screenshot: ch-20-menu-has-pin-and-rename.png
+          Action 2  : Press Escape or click elsewhere to close the menu.
+          PASS → dropdown visible with both "Pin to top" and "Rename"
+          FAIL → menu missing, or either option not present
+
+          ================================================================
+          SCENARIO 21 — New Session Again Shows No Overflow Menu
+          ================================================================
+          Action    : Click the "+ New" button to create another new session.
+          Verify 21a: A new turn-0 session card appears.
+          Verify 21b: This new session card does NOT have the "…"
+                      overflow menu button.
+          Screenshot: ch-21-new-session-no-menu-again.png
+          PASS → fresh session card has no overflow button
+          FAIL → overflow menu visible on turn-0 session
+
+          ================================================================
+          SCENARIO 22 — Rename a Session via Overflow Menu
+          ================================================================
+          Action    : Switch back to the session from Scenario 19 (the one
+                      with "hello, say hi back" — it has messages and an
+                      overflow menu). Click its card to make it active.
+                      Then click the "…" overflow button and select "Rename".
+          Verify 22a: An inline text input appears on the session card.
+          Action 2  : Type "My Test Session" and press Enter to save.
+          Verify 22b: The session card now displays "My Test Session" as
+                      the session name.
+          Screenshot: ch-22-renamed-session.png
+          PASS → inline input appeared AND name saved as "My Test Session"
+          FAIL → no input appeared, or name did not save
+
+          ================================================================
+          SCENARIO 23 — Renamed Name Persists After Switching Sessions
+          ================================================================
+          Action    : Click "+ New" to create a new session (switching away
+                      from the renamed session).
+          Verify 23a: The new session is now active.
+          Verify 23b: In the sessions panel, the previously renamed session
+                      still shows "My Test Session" as its name.
+          Screenshot: ch-23-rename-persists.png
+          PASS → "My Test Session" still visible after switching sessions
+          FAIL → name reverted or is no longer visible
+
+          ================================================================
+          SCENARIO 24 — Pin a Session to Top
+          ================================================================
+          Action    : Find the "My Test Session" card in the sessions panel.
+                      Click its "…" overflow button and select "Pin to top".
+          Verify 24a: The session moves to the pinned section at the top
+                      of the sessions panel.
+          Verify 24b: A "Pinned" group header or badge is visible, and
+                      "My Test Session" appears under it.
+          Screenshot: ch-24-session-pinned.png
+          PASS → session appears in pinned section at top of panel
+          FAIL → session did not move, or pinned section not visible
+
+          ================================================================
+          SCENARIO 25 — Unpin a Session
+          ================================================================
+          Action    : Click the "…" overflow button on the pinned
+                      "My Test Session" card and select "Unpin".
+          Verify 25a: The session moves back to the regular (unpinned)
+                      section of the sessions panel.
+          Verify 25b: The session is no longer in the pinned group.
+          Screenshot: ch-25-session-unpinned.png
+          PASS → session returned to regular list, no longer pinned
+          FAIL → session still in pinned section after unpinning
+
+          ================================================================
+          FINAL REPORT — output this exact block after all 8 scenarios
+          ================================================================
+
+          SESSION ACTIONS E2E TEST RESULTS
+          =================================
+          Scenario 18 (New Session No Menu)        : [PASS/FAIL] — [evidence]
+          Scenario 19 (Menu After Message)         : [PASS/FAIL] — [evidence]
+          Scenario 20 (Menu Has Pin & Rename)      : [PASS/FAIL] — [evidence]
+          Scenario 21 (New Session No Menu Again)  : [PASS/FAIL] — [evidence]
+          Scenario 22 (Rename Session)             : [PASS/FAIL] — [evidence]
+          Scenario 23 (Rename Persists)            : [PASS/FAIL] — [evidence]
+          Scenario 24 (Pin Session)                : [PASS/FAIL] — [evidence]
+          Scenario 25 (Unpin Session)              : [PASS/FAIL] — [evidence]
+
+          Overall     : [X/8 PASSED]
+          Screenshots : [comma-separated list of all files saved]
+        output: "session_actions_results"
+        timeout: 600
+
     # -----------------------------------------------------------------------
     # APPROVAL GATE — pause before Slack bridge tests
     # -----------------------------------------------------------------------
     approval:
       required: true
       prompt: |
-        Chat E2E tests complete (16 single-surface + 3 cross-surface scenarios).
+        Chat E2E tests complete (16 single-surface + 3 cross-surface + 8 session-actions scenarios).
 
         Single-Surface Results (S01–S16)
         ---------------------------------
@@ -593,6 +749,10 @@ stages:
         Cross-Surface Results (S17A–S17C)
         ----------------------------------
         {{multi_surface_results}}
+
+        Session Actions Results (S18–S25)
+        ----------------------------------
+        {{session_actions_results}}
 
         ---------------------------------------------------------------
         Ready to run Slack bridge tests.
@@ -803,6 +963,10 @@ stages:
           ----------------------------------
           {{multi_surface_results}}
 
+          SESSION ACTIONS RESULTS (S18–S25)
+          ----------------------------------
+          {{session_actions_results}}
+
           SLACK BRIDGE RESULTS
           --------------------
           {{slack_results}}
@@ -831,6 +995,16 @@ stages:
             14. /clear empties chat without page reload
             15. /workspace toggles activity panel on and off
             16. Theme toggle switches dark/light AND persists after page reload
+
+          Session actions — 8 scenarios:
+            18. New session (turn 0) has no overflow menu ("…" button hidden)
+            19. After sending message, overflow menu appears on session card
+            20. Overflow menu dropdown contains "Pin to top" and "Rename"
+            21. Creating another new session also has no overflow menu
+            22. Rename session via inline edit from overflow menu
+            23. Renamed name persists after switching to a different session
+            24. Pin session to top via overflow menu
+            25. Unpin session back to regular list
 
           Cross-surface real-time awareness — 3 sub-scenarios (Surface A actor,
           Surface C observer, both running as independent browser sessions):
@@ -890,6 +1064,19 @@ stages:
 
           Cross-Surface Result : [PASS (3/3) | PARTIAL (x/3) | FAIL (x/3)]
           (SKIPs: [list any SKIPs with reason])
+
+          SESSION ACTIONS  (overflow menu guards, rename, pin/unpin)
+          ----------------------------------------------------------
+          [PASS/FAIL] S18 — New session (turn 0) has no overflow menu
+          [PASS/FAIL] S19 — After message, overflow menu appears
+          [PASS/FAIL] S20 — Menu contains "Pin to top" and "Rename"
+          [PASS/FAIL] S21 — New session again has no overflow menu
+          [PASS/FAIL] S22 — Rename session via inline edit
+          [PASS/FAIL] S23 — Rename persists after switching sessions
+          [PASS/FAIL] S24 — Pin session to top
+          [PASS/FAIL] S25 — Unpin session back to regular list
+
+          Session Actions Result : [PASS (8/8) | PARTIAL (x/8) | FAIL (x/8)]
 
           SLACK BRIDGE  ({{slack_workspace}} -> #{{slack_channel}})
           ----------------------------------------------------------
