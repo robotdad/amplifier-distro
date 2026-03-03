@@ -793,8 +793,8 @@ class FoundationBackend:
             )
         logger.info("Attempting to reconnect session %s", session_id)
         try:
-            # 1. Load transcript from disk
-            transcript = self._find_transcript(session_id)
+            # 1. Load transcript from disk (offload sync I/O to thread)
+            transcript = await asyncio.to_thread(self._find_transcript, session_id)
 
             # 2. Handle orphaned tool calls (tool_use without matching result)
             from amplifier_foundation.session import (

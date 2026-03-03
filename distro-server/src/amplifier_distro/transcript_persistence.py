@@ -2,11 +2,13 @@
 
 Registers hooks on tool:post and orchestrator:complete that write
 transcript.jsonl incrementally during execution.  Uses distro's own
-atomic_write for crash safety.
+atomic_write for crash safety.  File I/O is offloaded to a thread
+via asyncio.to_thread to avoid blocking the event loop.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -106,7 +108,14 @@ class TranscriptSaveHook:
             if count <= self._last_count:
                 return HookResult(action="continue")
 
-            write_transcript(self._session_dir, messages)
+            # Offload synchronous file I/O (mkdir, atomic_write with fsync)
+            # to a thread so the event loop stays responsive for pings,
+            # WebSocket frames, and event dispatch.  Snapshot the list to
+            # prevent a data race if the orchestrator appends to context
+            # while the thread iterates.
+            await asyncio.to_thread(
+                write_transcript, self._session_dir, list(messages)
+            )
             self._last_count = count  # update only after successful write
 
         except Exception:  # noqa: BLE001
