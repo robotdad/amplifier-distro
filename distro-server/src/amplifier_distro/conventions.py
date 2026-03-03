@@ -25,6 +25,11 @@ DISTRO_HOME = os.environ.get("AMPLIFIER_DISTRO_HOME", "~/.amplifier-distro")
 # --- Distro Settings ---
 DISTRO_SETTINGS_FILENAME = "settings.yaml"  # distro-layer config (inside DISTRO_HOME)
 
+# --- Distro Sessions ---
+DISTRO_SESSIONS_DIR = f"{DISTRO_HOME}/sessions"  # server session directories
+DISTRO_SESSION_META_FILENAME = "meta.json"
+DISTRO_SESSION_LOG_FILENAME = "serve.log"
+
 # --- Local Overlay Bundle ---
 # The distro creates a local overlay bundle that includes the distro bundle.
 # The wizard/settings apps modify this overlay; the underlying bundle is untouched.

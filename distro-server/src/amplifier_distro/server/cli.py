@@ -402,6 +402,22 @@ def _run_foreground(
                 ", ".join(exported),
             )
 
+    # Create session directory (before services so logs capture everything)
+    from amplifier_distro.server.session_dir import (
+        create_session_dir,
+        setup_session_log,
+    )
+
+    session_id, session_path = create_session_dir(
+        host=host,
+        port=port,
+        dev_mode=dev,
+        stub_mode=stub,
+        apps=[],  # not yet discovered; meta.json updated below
+    )
+    log_file = setup_session_log(session_path)
+    logger.info("Session %s: %s", session_id, session_path)
+
     # Initialize shared services
     services = init_services(dev_mode=dev)
     click.echo(f"Services: backend={type(services.backend).__name__}")
@@ -423,6 +439,9 @@ def _run_foreground(
             if discovered:
                 click.echo(f"Loaded {len(discovered)} app(s): {', '.join(discovered)}")
 
+    # Update meta.json with discovered apps
+    _update_session_meta(session_path, {"apps": loaded_apps})
+
     if dev:
         click.echo("--- Dev mode: using mock session backend ---")
 
@@ -440,6 +459,8 @@ def _run_foreground(
 
     click.echo(f"Starting Amplifier Distro Server on {host}:{port}")
     click.echo(f"  Local: http://{host}:{port}")
+    click.echo(f"  Session: {session_path}")
+    click.echo(f"  Logs: {log_file}")
     if ts_url:
         click.echo(f"  HTTPS: {ts_url}  (Tailscale)")
     click.echo(f"  API docs: http://{host}:{port}/api/docs")
@@ -478,6 +499,19 @@ def _run_foreground(
             ws_ping_interval=20,
             ws_ping_timeout=20,
         )
+
+
+def _update_session_meta(session_path: Path, updates: dict) -> None:
+    """Merge *updates* into the session's meta.json."""
+    import json
+
+    meta_file = session_path / conventions.DISTRO_SESSION_META_FILENAME
+    try:
+        meta = json.loads(meta_file.read_text())
+        meta.update(updates)
+        meta_file.write_text(json.dumps(meta, indent=2) + "\n")
+    except OSError:
+        pass
 
 
 def _setup_tailscale(port: int) -> str | None:
