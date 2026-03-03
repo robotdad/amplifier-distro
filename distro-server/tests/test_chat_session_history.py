@@ -36,7 +36,10 @@ def chat_client(tmp_path) -> TestClient:
     """TestClient with _AMPLIFIER_HOME_OVERRIDE pointed at tmp_path."""
     import amplifier_distro.server.apps.chat.session_history as sh_mod
 
+    import amplifier_distro.server.apps.chat.pin_storage as pin_mod
+
     sh_mod._AMPLIFIER_HOME_OVERRIDE = str(tmp_path)
+    pin_mod._AMPLIFIER_HOME_OVERRIDE = str(tmp_path)
     try:
         init_services(dev_mode=True)
         from amplifier_distro.server.apps.chat import manifest
@@ -46,6 +49,7 @@ def chat_client(tmp_path) -> TestClient:
         yield TestClient(server.app)
     finally:
         sh_mod._AMPLIFIER_HOME_OVERRIDE = None  # always reset
+        pin_mod._AMPLIFIER_HOME_OVERRIDE = None
 
 
 def _make_session(
@@ -440,3 +444,61 @@ class TestSessionHistoryEndpoint:
 
         assert sessions[0]["session_id"] == "newer"
         assert sessions[1]["session_id"] == "older"
+
+
+class TestPinEndpoints:
+    """Tests for POST/DELETE /api/sessions/{id}/pin and GET /api/sessions/pins."""
+
+    def test_get_pins_returns_empty_list(self, chat_client: TestClient) -> None:
+        resp = chat_client.get("/apps/chat/api/sessions/pins")
+        assert resp.status_code == 200
+        assert resp.json() == {"pinned": []}
+
+    def test_pin_session_returns_200(self, chat_client: TestClient) -> None:
+        resp = chat_client.post("/apps/chat/api/sessions/test-session-1/pin")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "pinned"
+
+    def test_pin_then_list_shows_pinned(self, chat_client: TestClient) -> None:
+        chat_client.post("/apps/chat/api/sessions/test-session-1/pin")
+        resp = chat_client.get("/apps/chat/api/sessions/pins")
+        assert "test-session-1" in resp.json()["pinned"]
+
+    def test_unpin_session_returns_200(self, chat_client: TestClient) -> None:
+        chat_client.post("/apps/chat/api/sessions/test-session-1/pin")
+        resp = chat_client.delete("/apps/chat/api/sessions/test-session-1/pin")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "unpinned"
+
+    def test_unpin_then_list_shows_empty(self, chat_client: TestClient) -> None:
+        chat_client.post("/apps/chat/api/sessions/test-session-1/pin")
+        chat_client.delete("/apps/chat/api/sessions/test-session-1/pin")
+        resp = chat_client.get("/apps/chat/api/sessions/pins")
+        assert "test-session-1" not in resp.json()["pinned"]
+
+    def test_pin_rejects_invalid_session_id(self, chat_client: TestClient) -> None:
+        resp = chat_client.post("/apps/chat/api/sessions/bad%20id!/pin")
+        assert resp.status_code in (400, 422)
+
+    def test_unpin_nonexistent_is_noop(self, chat_client: TestClient) -> None:
+        resp = chat_client.delete("/apps/chat/api/sessions/nonexistent/pin")
+        assert resp.status_code == 200
+
+    def test_history_includes_pinned_true(self, chat_client: TestClient, tmp_path: Path) -> None:
+        _make_session(tmp_path, "-Users-test-project", "session-xyz", [
+            {"role": "user", "content": "hello"},
+        ])
+        chat_client.post("/apps/chat/api/sessions/session-xyz/pin")
+        resp = chat_client.get("/apps/chat/api/sessions/history")
+        sessions = resp.json()["sessions"]
+        pinned_session = next(s for s in sessions if s["session_id"] == "session-xyz")
+        assert pinned_session["pinned"] is True
+
+    def test_history_unpinned_has_pinned_false(self, chat_client: TestClient, tmp_path: Path) -> None:
+        _make_session(tmp_path, "-Users-test-project", "session-xyz", [
+            {"role": "user", "content": "hello"},
+        ])
+        resp = chat_client.get("/apps/chat/api/sessions/history")
+        sessions = resp.json()["sessions"]
+        session = next(s for s in sessions if s["session_id"] == "session-xyz")
+        assert session["pinned"] is False

@@ -24,6 +24,11 @@
       --status-connected: var(--accent-green);
       --status-connecting: var(--accent-amber);
       --status-disconnected: var(--accent-red);
+      --action-btn-bg: rgba(255, 255, 255, 0.06);
+      --action-btn-bg-hover: rgba(255, 255, 255, 0.10);
+      --action-btn-bg-active: rgba(255, 255, 255, 0.15);
+      --action-btn-color: #b0b0b0;
+      --action-btn-color-hover: #e8e8e8;
     }
 
     body[data-theme="light"] {
@@ -39,6 +44,11 @@
       --accent-green: #16a34a;
       --accent-amber: #d97706;
       --accent-red: #dc2626;
+      --action-btn-bg: rgba(0, 0, 0, 0.05);
+      --action-btn-bg-hover: rgba(0, 0, 0, 0.08);
+      --action-btn-bg-active: rgba(0, 0, 0, 0.12);
+      --action-btn-color: #64748b;
+      --action-btn-color-hover: #0f172a;
     }
 
     body {
@@ -334,17 +344,7 @@
     .session-card-meta { font-size: 11px; color: var(--text-muted); display: flex; gap: 6px; align-items: center; margin-top: 2px; }
     .session-card-name-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
     .session-card-name-row .session-card-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .session-rename-trigger {
-      background: none; border: none; padding: 4px; margin: -4px; cursor: pointer;
-      color: var(--text-muted); opacity: 0; transition: opacity 0.15s;
-      display: inline-flex; align-items: center; justify-content: center;
-      min-width: 44px; min-height: 44px; flex-shrink: 0;
-    }
-    .session-card:hover .session-rename-trigger,
-    .session-card.active .session-rename-trigger,
-    .session-card:focus .session-rename-trigger,
-    .session-card:focus-within .session-rename-trigger { opacity: 1; }
-    .session-rename-trigger:hover { color: var(--accent-blue); }
+
     .session-name-input {
       font-size: 12px; font-weight: 500; color: var(--text-primary);
       background: transparent; border: none; border-bottom: 1px solid var(--accent-blue);
@@ -1068,6 +1068,163 @@
       .pane-resizer { display: none !important; }
       #message-input { font-size: 16px; }
     }
+    /* Pin section headers */
+    .session-section-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px 4px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      position: sticky;
+      top: 0;
+      background: var(--bg-secondary);
+      z-index: 1;
+      user-select: none;
+    }
+    .session-section-header .count {
+      font-weight: 400;
+      opacity: 0.7;
+    }
+    /* Overflow menu trigger and pin icon */
+    .session-card-actions {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      display: flex;
+      gap: 2px;
+      opacity: 0;
+      transition: opacity 0.15s ease-out;
+    }
+    .session-card:hover .session-card-actions,
+    .session-card-actions:focus-within,
+    .session-card-actions.menu-open {
+      opacity: 1;
+    }
+    @media (hover: none), (pointer: coarse) {
+      .session-card-actions { opacity: 1; }
+    }
+    .session-card-action-btn {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border: none;
+      background: var(--action-btn-bg);
+      color: var(--action-btn-color);
+      cursor: pointer;
+      border-radius: 6px;
+      box-sizing: border-box;
+      transition: background 0.1s ease-out, color 0.1s ease-out;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .session-card-action-btn .icon {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+    }
+    .session-card-action-btn:hover {
+      background: var(--action-btn-bg-hover);
+      color: var(--action-btn-color-hover);
+    }
+    .session-card-action-btn:active {
+      background: var(--action-btn-bg-active);
+    }
+    .session-card-action-btn:focus-visible {
+      outline: 2px solid var(--accent-blue);
+      outline-offset: 1px;
+    }
+    @media (pointer: coarse) {
+      .session-card-action-btn::after {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 44px;
+        height: 44px;
+      }
+    }
+    /* Dropdown */
+    .session-overflow-menu {
+      position: absolute;
+      top: 100%;
+      right: 0;
+      margin-top: 4px;
+      min-width: 160px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      z-index: 100;
+      padding: 4px 0;
+    }
+    .session-overflow-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 8px 12px;
+      min-height: 44px;
+      border: none;
+      background: none;
+      color: var(--text-primary);
+      cursor: pointer;
+      text-align: left;
+      font-size: 13px;
+    }
+    .session-overflow-item:hover {
+      background: var(--bg-tertiary);
+    }
+    /* Ensure session-card is position relative */
+    .session-card { position: relative; }
+
+    /* Pin animation tokens */
+    :root {
+      --pin-duration-icon: 150ms;
+      --pin-duration-card-enter: 200ms;
+      --pin-duration-card-exit: 150ms;
+      --pin-duration-section: 250ms;
+      --pin-ease-settle: cubic-bezier(0.0, 0.0, 0.2, 1);
+      --pin-ease-depart: cubic-bezier(0.4, 0.0, 1, 1);
+      --pin-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    @keyframes pin-enter {
+      from { opacity: 0; transform: translateY(-8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .session-card-just-pinned {
+      animation: pin-enter var(--pin-duration-card-enter) var(--pin-ease-settle) both;
+    }
+    @keyframes unpin-exit {
+      from { opacity: 1; transform: scale(1); }
+      to { opacity: 0; transform: scale(0.97); }
+    }
+    .session-card-unpinning {
+      animation: unpin-exit var(--pin-duration-card-exit) var(--pin-ease-depart) both;
+    }
+    @keyframes unpin-enter {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .session-card-just-unpinned {
+      animation: unpin-enter var(--pin-duration-card-enter) var(--pin-ease-settle) both;
+      animation-delay: var(--pin-duration-card-exit);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .session-card-just-pinned,
+      .session-card-unpinning,
+      .session-card-just-unpinned {
+        animation-duration: 0.01ms !important;
+        animation-delay: 0ms !important;
+      }
+    }
   </style>
 </head>
 <body>
@@ -1143,6 +1300,32 @@
 
     // Default: pretty-print JSON for other commands
     return { text: JSON.stringify(result, null, 2) };
+  }
+
+  // --- Pin API helpers ---
+  async function fetchPinnedSessions() {
+    try {
+      const resp = await fetch('/apps/chat/api/sessions/pins');
+      if (!resp.ok) return new Set();
+      const data = await resp.json();
+      return new Set(data.pinned || []);
+    } catch { return new Set(); }
+  }
+
+  async function apiPinSession(sessionId) {
+    try {
+      await fetch('/apps/chat/api/sessions/' + encodeURIComponent(sessionId) + '/pin', {
+        method: 'POST',
+      });
+    } catch (e) { console.error('Failed to pin session:', e); }
+  }
+
+  async function apiUnpinSession(sessionId) {
+    try {
+      await fetch('/apps/chat/api/sessions/' + encodeURIComponent(sessionId) + '/pin', {
+        method: 'DELETE',
+      });
+    } catch (e) { console.error('Failed to unpin session:', e); }
   }
 
   function makeId() {
@@ -1480,6 +1663,10 @@
         return html`<svg class=${cls} viewBox="0 0 24 24"><path d="m10 6 6 6-6 6"></path></svg>`;
       case 'refresh':
         return html`<svg class=${cls} viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.3"></path><path d="M21 3v6h-6"></path></svg>`;
+      case 'pin':
+        return html`<svg class=${cls} viewBox="0 0 24 24"><path d="M12 17v5"></path><path d="M9 11V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v7"></path><path d="M5 17h14"></path><path d="M7 11l1.5 6h7L17 11"></path></svg>`;
+      case 'more-vertical':
+        return html`<svg class=${cls} viewBox="0 0 24 24"><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>`;
       default:
         return null;
     }
@@ -1753,16 +1940,45 @@
     `;
   }
 
-  function SessionCard({ session, isActive, onClick, setSessions }) {
+  function SessionOverflowMenu({ isPinned, canPin, onPin, onRename, onClose }) {
+    const menuRef = useRef(null);
+    useEffect(() => {
+      function handleClickOutside(e) {
+        if (menuRef.current && !menuRef.current.contains(e.target)) onClose();
+      }
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('touchstart', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+        document.removeEventListener('touchstart', handleClickOutside);
+      };
+    }, [onClose]);
+
+    return html`
+      <div class="session-overflow-menu" ref=${menuRef} role="menu" aria-label="Session actions">
+        ${canPin && html`
+          <button class="session-overflow-item" role="menuitem"
+            onClick=${(e) => { e.stopPropagation(); onPin(); onClose(); }}>
+            ${isPinned ? 'Unpin' : 'Pin to top'}
+          </button>
+        `}
+        <button class="session-overflow-item" role="menuitem"
+          onClick=${(e) => { e.stopPropagation(); onRename(); onClose(); }}>
+          Rename
+        </button>
+      </div>
+    `;
+  }
+
+  function SessionCard({ session, isActive, onClick, setSessions, onTogglePin, isPinned }) {
     const [isEditing, setIsEditing] = useState(false);
     const [editValue, setEditValue] = useState('');
     const [shaking, setShaking] = useState(false);
     const [saved, setSaved] = useState(false);
     const [announcement, setAnnouncement] = useState('');
+    const [menuOpen, setMenuOpen] = useState(false);
     const inputRef = useRef(null);
     const originalNameRef = useRef('');
-    const longPressTimerRef = useRef(null);
-
     const statusIcon =
       session.status === 'running' ? '⟳ ' :
       session.status === 'connecting' ? '◌ ' :
@@ -1865,33 +2081,7 @@
       }
     }, [isEditing, startEditing]);
 
-    const handleTouchStart = useCallback((e) => {
-      // Suppress native long-press behaviour (browser context menu, iOS text-selection
-      // handles) so our custom 500 ms handler is the only thing that fires.
-      e.preventDefault();
-      longPressTimerRef.current = setTimeout(() => {
-        longPressTimerRef.current = null;
-        startEditing(null);
-      }, 500);
-    }, [startEditing]);
-    const handleTouchEnd = useCallback(() => {
-      if (longPressTimerRef.current) {
-        // Short tap: cancel the long-press timer and manually fire the click
-        // action, because e.preventDefault() on touchstart stops the browser
-        // from synthesising a click event.
-        clearTimeout(longPressTimerRef.current);
-        longPressTimerRef.current = null;
-        if (!isEditing && onClick) onClick();
-      }
-    }, [isEditing, onClick]);
-    const handleTouchMove = useCallback(() => {
-      if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
-    }, []);
-    // Suppress the browser's native context menu on right-click / long-press
-    // (belt-and-suspenders alongside the touchstart preventDefault).
-    const handleContextMenu = useCallback((e) => {
-      e.preventDefault();
-    }, []);
+
 
     useEffect(() => {
       if (isEditing && inputRef.current) {
@@ -1901,7 +2091,7 @@
     }, [isEditing]);
 
     return html`
-      <div class=${'session-card' + (isActive ? ' active' : '') + (isEditing ? ' session-name-editing' : '') + (saved ? ' session-name-saved' : '')} onClick=${isEditing ? null : onClick} onKeyDown=${handleCardKeyDown} onTouchStart=${handleTouchStart} onTouchEnd=${handleTouchEnd} onTouchMove=${handleTouchMove} onContextMenu=${handleContextMenu} tabindex="0">
+      <div class=${'session-card' + (isActive ? ' active' : '') + (isEditing ? ' session-name-editing' : '') + (saved ? ' session-name-saved' : '')} data-session-id=${session.sessionId} onClick=${isEditing ? null : onClick} onKeyDown=${handleCardKeyDown} tabindex="0">
         <div class="session-card-name-row">
           <div class=${'session-card-name' + (!session.name ? ' auto-named' : '') + (shaking ? ' session-name-shake' : '')}>
             ${statusIcon}
@@ -1919,18 +2109,26 @@
               : html`${sessionName}${session.pendingApproval ? html`<${Icon} name="bell" className="sm" />` : ''}`
             }
           </div>
-          ${isEditing
-            ? html`<span class="session-edit-actions">
+          ${isEditing && html`<span class="session-edit-actions">
                 <button onClick=${(e) => { e.stopPropagation(); saveEdit(); }} title="Save">✓</button>
                 <button onClick=${(e) => { e.stopPropagation(); cancelEditing(); }} title="Cancel">✕</button>
               </span>`
-            : html`<button
-                class="session-rename-trigger"
-                onClick=${startEditing}
-                title="Rename session"
-                aria-label="Rename session"
-              >✏</button>`
           }
+        </div>
+        <div class=${'session-card-actions' + (menuOpen ? ' menu-open' : '')}>
+          <button class="session-card-action-btn" title="More actions" aria-label="Session actions"
+            aria-haspopup="menu"
+            onClick=${(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
+          ><${Icon} name="more-vertical" /></button>
+          ${menuOpen && html`
+            <${SessionOverflowMenu}
+              isPinned=${isPinned}
+              canPin=${!!session.sessionId && (session.turnCount || session.messageCount || 0) > 0}
+              onPin=${() => onTogglePin(session.sessionId, isPinned)}
+              onRename=${(e) => startEditing(e)}
+              onClose=${() => setMenuOpen(false)}
+            />
+          `}
         </div>
         <div class="session-card-cwd session-card-cwd-row" title=${session.cwd || '~'}>
           <${Icon} name="folder" className="sm" />
@@ -2185,6 +2383,7 @@
     const [showSessionFilter, setShowSessionFilter] = useState(false);
     const [collapsedDirGroups, setCollapsedDirGroups] = useState({});
     const [collapsedSpawnGroups, setCollapsedSpawnGroups] = useState({});
+    const [pinnedSessionIds, setPinnedSessionIds] = useState(new Set());
     const [sessionPanelWidth, setSessionPanelWidth] = useState(300);
     const [activityPanelWidth, setActivityPanelWidth] = useState(460);
     const [draggingPane, setDraggingPane] = useState(null);
@@ -3102,6 +3301,8 @@
             return changed ? next : prev;
           });
           setPendingHistorySyncCount(0);
+          // Load pin state from server
+          fetchPinnedSessions().then(pinSet => setPinnedSessionIds(pinSet));
         })
         .catch(err => {
           console.warn('[chat] failed to load session history', err);
@@ -3111,6 +3312,38 @@
           setHistoryListLoading(false);
           if (!silent) setSyncingHistory(false);
         });
+    }, []);
+
+    const handleTogglePin = useCallback(async (sessionId, currentlyPinned) => {
+      if (currentlyPinned) {
+        const card = document.querySelector('[data-session-id="' + sessionId + '"]');
+        if (card) card.classList.add('session-card-unpinning');
+        setTimeout(async () => {
+          await apiUnpinSession(sessionId);
+          setPinnedSessionIds(prev => {
+            const next = new Set(prev);
+            next.delete(sessionId);
+            return next;
+          });
+          requestAnimationFrame(() => {
+            const el = document.querySelector('[data-session-id="' + sessionId + '"]');
+            if (el) {
+              el.classList.add('session-card-just-unpinned');
+              setTimeout(() => el.classList.remove('session-card-just-unpinned'), 400);
+            }
+          });
+        }, 150);
+      } else {
+        await apiPinSession(sessionId);
+        setPinnedSessionIds(prev => new Set(prev).add(sessionId));
+        requestAnimationFrame(() => {
+          const el = document.querySelector('[data-session-id="' + sessionId + '"]');
+          if (el) {
+            el.classList.add('session-card-just-pinned');
+            setTimeout(() => el.classList.remove('session-card-just-pinned'), 250);
+          }
+        });
+      }
     }, []);
 
     useEffect(() => {
@@ -4003,6 +4236,8 @@
                 isActive=${key === activeKey}
                 onClick=${() => switchSession(key)}
                 setSessions=${setSessions}
+                onTogglePin=${handleTogglePin}
+                isPinned=${!!(session && session.sessionId && pinnedSessionIds.has(session.sessionId))}
               />
             </div>
           </div>
@@ -4208,30 +4443,56 @@
                 <span>${hasSessionFilter ? 'No sessions match this filter.' : 'No sessions yet.'}</span>
               </div>
             `}
-            ${sessionSortMode === 'directory'
-              ? directoryGroups.map(group => {
-                  const collapsed = collapsedDirGroups[group.key] !== false;
-                  return html`
-                    <div class="session-dir-group" key=${'group-' + group.key}>
-                      <button
-                        class="session-dir-header"
-                        onClick=${() => toggleDirGroup(group.key)}
-                        title=${group.cwd}
-                      >
-                        <${Icon} name=${collapsed ? 'chevron-right' : 'chevron-down'} className="sm" />
-                        <span class="session-dir-title">${group.cwd}</span>
-                        <span class="session-dir-count">${group.items.length}</span>
-                      </button>
-                      ${!collapsed && html`
-                        <div class="session-dir-items">
-                          ${group.items.map(entry => renderSessionTreeEntry(entry))}
-                        </div>
+            ${(() => {
+              const pinnedEntries = rootSessionEntries.filter(([key, s]) =>
+                s && s.sessionId && pinnedSessionIds.has(s.sessionId)
+              );
+              const unpinnedEntries = rootSessionEntries.filter(([key, s]) =>
+                !s || !s.sessionId || !pinnedSessionIds.has(s.sessionId)
+              );
+              return html`
+                ${pinnedEntries.length > 0 && html`
+                  <div class="session-section-header">
+                    Pinned <span class="count">${pinnedEntries.length}</span>
+                  </div>
+                  ${pinnedEntries.map(entry => renderSessionTreeEntry(entry))}
+                `}
+                ${sessionSortMode === 'directory'
+                  ? html`
+                      ${pinnedEntries.length > 0 && html`
+                        <div class="session-section-header">Directories</div>
                       `}
-                    </div>
-                  `;
-                })
-              : rootSessionEntries.map(entry => renderSessionTreeEntry(entry))
-            }
+                      ${directoryGroups.map(group => {
+                        const collapsed = collapsedDirGroups[group.key] !== false;
+                        return html`
+                          <div class="session-dir-group" key=${'group-' + group.key}>
+                            <button
+                              class="session-dir-header"
+                              onClick=${() => toggleDirGroup(group.key)}
+                              title=${group.cwd}
+                            >
+                              <${Icon} name=${collapsed ? 'chevron-right' : 'chevron-down'} className="sm" />
+                              <span class="session-dir-title">${group.cwd}</span>
+                              <span class="session-dir-count">${group.items.length}</span>
+                            </button>
+                            ${!collapsed && html`
+                              <div class="session-dir-items">
+                                ${group.items.map(entry => renderSessionTreeEntry(entry))}
+                              </div>
+                            `}
+                          </div>
+                        `;
+                      })}
+                    `
+                  : html`
+                      ${pinnedEntries.length > 0 && unpinnedEntries.length > 0 && html`
+                        <div class="session-section-header">Recent</div>
+                      `}
+                      ${unpinnedEntries.map(entry => renderSessionTreeEntry(entry))}
+                    `
+                }
+              `;
+            })()}
           </div>
           <div class="session-actions">
                 ${showDraftCwdEditor

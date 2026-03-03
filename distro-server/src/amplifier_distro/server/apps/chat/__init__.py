@@ -36,6 +36,11 @@ from amplifier_distro.conventions import (
     TRANSCRIPT_FILENAME,
 )
 from amplifier_distro.server.app import AppManifest
+from amplifier_distro.server.apps.chat.pin_storage import (
+    add_pin,
+    load_pins,
+    remove_pin,
+)
 from amplifier_distro.server.apps.chat.session_history import (
     scan_session_revisions,
     scan_sessions,
@@ -198,12 +203,42 @@ async def list_session_history(
 ) -> dict:
     """Return lightweight metadata for all sessions discovered on disk."""
     sessions = await asyncio.to_thread(scan_sessions)
+    pinned_ids = await asyncio.to_thread(load_pins)
     sessions = [
         row
         for row in sessions
         if (row.get("message_count") or 0) > 0 or row.get("last_user_message")
     ]
+    for row in sessions:
+        row["pinned"] = row["session_id"] in pinned_ids
     return {"sessions": sessions[:limit]}
+
+
+@router.get("/api/sessions/pins", dependencies=[Depends(_require_api_key)])
+async def list_pins() -> dict:
+    """Return list of pinned session IDs."""
+    pins = await asyncio.to_thread(load_pins)
+    return {"pinned": sorted(pins)}
+
+
+@router.post("/api/sessions/{session_id}/pin", dependencies=[Depends(_require_api_key)])
+async def pin_session(session_id: str) -> dict:
+    """Pin a session to the top of the session list."""
+    if not _VALID_SESSION_ID.fullmatch(session_id):
+        raise HTTPException(status_code=400, detail="Invalid session ID")
+    await asyncio.to_thread(add_pin, session_id)
+    return {"status": "pinned", "session_id": session_id}
+
+
+@router.delete(
+    "/api/sessions/{session_id}/pin", dependencies=[Depends(_require_api_key)]
+)
+async def unpin_session(session_id: str) -> dict:
+    """Unpin a session from the top of the session list."""
+    if not _VALID_SESSION_ID.fullmatch(session_id):
+        raise HTTPException(status_code=400, detail="Invalid session ID")
+    await asyncio.to_thread(remove_pin, session_id)
+    return {"status": "unpinned", "session_id": session_id}
 
 
 @router.get("/api/sessions/revisions", dependencies=[Depends(_require_api_key)])
