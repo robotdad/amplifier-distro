@@ -301,21 +301,14 @@ class TestCsrfProtection:
 
         await _check_origin(origin=None)
 
-    async def test_events_tailscale_origin_allowed(self) -> None:
+    async def test_events_tailscale_origin_allowed(self, monkeypatch) -> None:
         """_check_origin allows Tailscale DNS origins when in _allowed_origins."""
-        from amplifier_distro.server.apps.voice import (
-            _allowed_origins,
-            _check_origin,
-        )
+        from amplifier_distro.server.apps.voice import _check_origin
 
-        original = _allowed_origins.copy()
-        try:
-            voice_module._allowed_origins.add("mybox.tail1234.ts.net")
-            # Should complete without raising HTTPException
-            await _check_origin(origin="https://mybox.tail1234.ts.net:8400")
-        finally:
-            voice_module._allowed_origins.clear()
-            voice_module._allowed_origins.update(original)
+        patched = voice_module._allowed_origins | {"mybox.tail1234.ts.net"}
+        monkeypatch.setattr(voice_module, "_allowed_origins", patched)
+        # Should complete without raising HTTPException
+        await _check_origin(origin="https://mybox.tail1234.ts.net:8400")
 
 
 # ---------------------------------------------------------------------------
