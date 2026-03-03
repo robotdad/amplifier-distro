@@ -442,3 +442,87 @@ class TestResumeTranscriptPreservation:
         )
         assert lines[4]["content"] == "msg 3"
         assert lines[5]["content"] == "resp 3"
+
+
+class TestToolPostTimingFix:
+    """Tests for tool:post timing fix (BUG-5, issue #63).
+
+    The orchestrator emits tool:post BEFORE adding the tool_result to
+    context. The hook now yields one event-loop tick on tool:post to
+    let the context update happen before reading messages.
+    """
+
+    async def test_tool_post_yields_before_reading_context(self, tmp_path: Path):
+        """On tool:post, the hook must yield so context includes the tool_result.
+
+        Simulates the real race: get_messages() returns stale data (no tool
+        result) if called immediately, but returns fresh data (with tool
+        result) after one event-loop tick. Without the asyncio.sleep(0),
+        the hook would see stale data and skip the write.
+        """
+        from amplifier_distro.transcript_persistence import TranscriptSaveHook
+
+        messages_before = [
+            {"role": "user", "content": "run tool"},
+            {"role": "assistant", "content": None, "tool_calls": [{"id": "t1"}]},
+        ]
+        messages_after = messages_before + [
+            {"role": "tool", "tool_call_id": "t1", "content": "result"},
+        ]
+
+        # Track whether a yield has happened (simulates orchestrator updating
+        # context on the next tick after emitting tool:post)
+        yielded = False
+        original_sleep = asyncio.sleep
+
+        async def tracking_sleep(n):
+            nonlocal yielded
+            await original_sleep(n)
+            if n == 0:
+                yielded = True
+
+        async def get_messages():
+            # Before the yield: orchestrator hasn't updated context yet
+            # After the yield: context includes the tool_result
+            if yielded:
+                return messages_after
+            return messages_before
+
+        session = MagicMock()
+        context = MagicMock()
+        context.get_messages = get_messages
+        session.coordinator.get = MagicMock(return_value=context)
+
+        hook = TranscriptSaveHook(session, tmp_path)
+
+        # Patch asyncio.sleep to track yields
+        with patch("amplifier_distro.transcript_persistence.asyncio.sleep", tracking_sleep):
+            await hook("tool:post", {"tool_name": "test", "tool_result": "result"})
+
+        # The hook should have written the transcript including the tool result
+        transcript = tmp_path / "transcript.jsonl"
+        assert transcript.exists(), "Transcript must be written on tool:post"
+        lines = [
+            json.loads(line)
+            for line in transcript.read_text().strip().split("\n")
+        ]
+        tool_msgs = [m for m in lines if m.get("role") == "tool"]
+        assert len(tool_msgs) == 1, "Tool result must be in the transcript"
+
+    async def test_orchestrator_complete_does_not_yield(self, tmp_path: Path):
+        """On orchestrator:complete, the hook should NOT add a yield delay."""
+        from amplifier_distro.transcript_persistence import TranscriptSaveHook
+
+        messages = [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "hi"},
+        ]
+
+        session = _make_mock_session(messages)
+        hook = TranscriptSaveHook(session, tmp_path)
+
+        # This should work without any yield delay
+        await hook("orchestrator:complete", {})
+
+        transcript = tmp_path / "transcript.jsonl"
+        assert transcript.exists()

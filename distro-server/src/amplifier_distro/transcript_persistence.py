@@ -97,6 +97,15 @@ class TranscriptSaveHook:
 
     async def __call__(self, event: str, data: dict[str, Any]) -> Any:
         try:
+            # HACK(#63): The orchestrator emits tool:post BEFORE adding the
+            # tool_result to context. Yielding one event-loop tick lets the
+            # orchestrator's next statement (context update) execute before
+            # we read messages. This is a workaround -- the proper fix is
+            # upstream in amplifier-foundation (emit tool:post AFTER context
+            # update). Remove this when the orchestrator contract is fixed.
+            if event == "tool:post":
+                await asyncio.sleep(0)
+
             context = self._session.coordinator.get("context")
             if not context or not hasattr(context, "get_messages"):
                 return HookResult(action="continue")
