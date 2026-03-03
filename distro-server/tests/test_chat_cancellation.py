@@ -25,7 +25,8 @@ class TestSessionHandleCancel:
         )
 
         await handle.cancel("graceful")
-        mock_session.coordinator.request_cancel.assert_called_once_with("graceful")
+        # "graceful" maps to immediate=False (see session_backend.py _SessionHandle.cancel)
+        mock_session.coordinator.request_cancel.assert_called_once_with(False)
 
     @pytest.mark.asyncio
     async def test_cancel_no_session_does_not_raise(self):

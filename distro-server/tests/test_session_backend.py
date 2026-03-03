@@ -615,7 +615,8 @@ class TestSessionHandleCancel:
             session=mock_session,
         )
         await handle.cancel("graceful")
-        mock_session.coordinator.request_cancel.assert_called_once_with("graceful")
+        # "graceful" maps to immediate=False (the bool the Rust binding expects)
+        mock_session.coordinator.request_cancel.assert_called_once_with(False)
 
     async def test_cancel_no_session_does_not_raise(self):
         """cancel() returns early when session is None — must not raise."""
@@ -642,6 +643,23 @@ class TestSessionHandleCancel:
         )
         await handle.cancel("graceful")  # must not raise
 
+    async def test_cancel_immediate_passes_true(self):
+        """cancel('immediate') must pass immediate=True to the coordinator."""
+        from amplifier_distro.server.session_backend import _SessionHandle
+
+        mock_session = MagicMock()
+        mock_session.coordinator = MagicMock()
+        mock_session.coordinator.request_cancel = MagicMock()
+
+        handle = _SessionHandle(
+            session_id="s-imm",
+            project_id="p-imm",
+            working_dir=Path("/tmp"),
+            session=mock_session,
+        )
+        await handle.cancel("immediate")
+        mock_session.coordinator.request_cancel.assert_called_once_with(True)
+
     async def test_cancel_awaits_coroutine_request_cancel(self):
         """cancel() must await request_cancel when it is a coroutine function.
 
@@ -663,7 +681,8 @@ class TestSessionHandleCancel:
         )
         await handle.cancel("graceful")
 
-        mock_session.coordinator.request_cancel.assert_awaited_once_with("graceful")
+        # "graceful" maps to immediate=False
+        mock_session.coordinator.request_cancel.assert_awaited_once_with(False)
 
 
 # ── FoundationBackend.execute ──────────────────────────────────────────

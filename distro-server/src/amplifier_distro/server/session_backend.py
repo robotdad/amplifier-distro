@@ -83,7 +83,13 @@ class _SessionHandle:
             self._cleanup_done = True
 
     async def cancel(self, level: str = "graceful") -> None:
-        """Request cancellation of the running session."""
+        """Request cancellation of the running session.
+
+        Maps the string ``level`` to the ``immediate`` bool expected by
+        the coordinator's ``request_cancel(immediate: bool)`` signature.
+        Previously, passing the raw string "graceful" was truthy in Python
+        (``bool("graceful") == True``), making all cancels immediate.
+        """
         if self.session is None:
             return
         coordinator = getattr(self.session, "coordinator", None)
@@ -91,11 +97,12 @@ class _SessionHandle:
             return
         request_cancel = getattr(coordinator, "request_cancel", None)
         if request_cancel is not None:
+            immediate = level == "immediate"
             try:
                 if asyncio.iscoroutinefunction(request_cancel):
-                    await request_cancel(level)
+                    await request_cancel(immediate)
                 else:
-                    request_cancel(level)
+                    request_cancel(immediate)
             except Exception:  # noqa: BLE001
                 logger.warning(
                     "Error requesting cancel (level=%s)", level, exc_info=True
