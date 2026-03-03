@@ -266,6 +266,11 @@ def watchdog_group(ctx: click.Context) -> None:
 )
 @click.option("--apps-dir", default=None, help="Server apps directory")
 @click.option("--dev", is_flag=True, help="Server dev mode")
+@click.option(
+    "--watch-cache/--no-watch-cache",
+    default=True,
+    help="Watch ~/.amplifier/cache/ for changes and restart on update.",
+)
 def watchdog_start(
     host: str,
     port: int,
@@ -274,6 +279,7 @@ def watchdog_start(
     max_restarts: int,
     apps_dir: str | None,
     dev: bool,
+    watch_cache: bool,
 ) -> None:
     """Start the watchdog as a background process."""
     from amplifier_distro.server.watchdog import is_watchdog_running, start_watchdog
@@ -290,11 +296,13 @@ def watchdog_start(
         max_restarts=max_restarts,
         apps_dir=apps_dir,
         dev=dev,
+        watch_cache=watch_cache,
     )
     click.echo(f"Watchdog started (PID {pid})")
     click.echo(f"  Monitoring: http://{host}:{port}/api/health")
     click.echo(f"  Check interval: {check_interval}s")
     click.echo(f"  Restart after: {restart_after}s downtime")
+    click.echo(f"  Cache watching: {'enabled' if watch_cache else 'disabled'}")
 
 
 @watchdog_group.command("stop")

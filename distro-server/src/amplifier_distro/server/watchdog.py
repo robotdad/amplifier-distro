@@ -54,6 +54,39 @@ def watchdog_log_file_path() -> Path:
 
 
 # ---------------------------------------------------------------------------
+# Cache helpers
+# ---------------------------------------------------------------------------
+
+
+def _cache_dir() -> Path:
+    """Return the resolved bundle cache directory path."""
+    return Path(conventions.AMPLIFIER_HOME).expanduser() / conventions.CACHE_DIR
+
+
+def _get_cache_fingerprint(cache_path: Path) -> str:
+    """Build a fingerprint of the cache directory state.
+
+    Uses a sorted listing of cache entry names + mtimes to detect
+    when entries are added, removed, or refreshed by ``amplifier update``.
+    Falls back gracefully if the directory doesn't exist.
+    """
+    if not cache_path.is_dir():
+        return ""
+    try:
+        entries = []
+        for child in sorted(cache_path.iterdir()):
+            if child.name.startswith("."):
+                continue
+            try:
+                entries.append(f"{child.name}:{child.stat().st_mtime_ns}")
+            except OSError:
+                continue
+        return "|".join(entries)
+    except OSError:
+        return ""
+
+
+# ---------------------------------------------------------------------------
 # Health check
 # ---------------------------------------------------------------------------
 
@@ -128,11 +161,14 @@ def run_watchdog_loop(
     apps_dir: str | None = None,
     dev: bool = False,
     supervised: bool = False,
+    watch_cache: bool = True,
 ) -> None:
     """Run the watchdog loop in the foreground (blocking).
 
     Monitors the server health endpoint and restarts the server if it has
-    been continuously unresponsive for ``restart_after`` seconds.
+    been continuously unresponsive for ``restart_after`` seconds.  When
+    ``watch_cache`` is True (default) also restarts immediately whenever the
+    cache directory fingerprint changes (i.e. after ``amplifier update``).
 
     Handles SIGTERM/SIGINT for clean shutdown. Writes its own PID file.
 
@@ -144,6 +180,8 @@ def run_watchdog_loop(
         max_restarts: Maximum restarts per watchdog session (0 = unlimited).
         apps_dir: Optional server apps directory.
         dev: Server dev mode flag.
+        supervised: Running under a service manager.
+        watch_cache: Watch ~/.amplifier/cache/ for changes and restart on update.
     """
     global _shutdown
     _shutdown = False
@@ -172,6 +210,12 @@ def run_watchdog_loop(
     first_failure_time: float | None = None
     restart_count = 0
 
+    # Initialise cache fingerprint before the loop
+    cache_path = _cache_dir()
+    last_fingerprint: str | None = None
+    if watch_cache:
+        last_fingerprint = _get_cache_fingerprint(cache_path)
+
     try:
         while not _shutdown:
             time.sleep(check_interval)
@@ -185,6 +229,25 @@ def run_watchdog_loop(
                     elapsed = time.monotonic() - first_failure_time
                     logger.info("Server recovered after %ds of downtime", int(elapsed))
                     first_failure_time = None
+
+                # Cache change detection (only when server is healthy)
+                if watch_cache:
+                    current_fingerprint = _get_cache_fingerprint(cache_path)
+                    if (
+                        last_fingerprint is not None
+                        and current_fingerprint != last_fingerprint
+                    ):
+                        logger.info(
+                            "Cache change detected "
+                            "— restarting server to pick up updates"
+                        )
+                        _restart_server(host, port, apps_dir, dev, supervised)
+                        restart_count += 1
+                        last_fingerprint = current_fingerprint
+                        first_failure_time = None
+                        continue
+                    last_fingerprint = current_fingerprint
+
                 continue
 
             # Server is unhealthy
@@ -296,6 +359,7 @@ def start_watchdog(
     max_restarts: int = 5,
     apps_dir: str | None = None,
     dev: bool = False,
+    watch_cache: bool = True,
 ) -> int:
     """Spawn the watchdog as a detached background process.
 
@@ -310,6 +374,7 @@ def start_watchdog(
         max_restarts: Max restarts per session (0 = unlimited).
         apps_dir: Optional server apps directory.
         dev: Server dev mode flag.
+        watch_cache: Watch ~/.amplifier/cache/ for changes and restart on update.
 
     Returns:
         The PID of the spawned watchdog process.
@@ -333,6 +398,8 @@ def start_watchdog(
         cmd.extend(["--apps-dir", apps_dir])
     if dev:
         cmd.append("--dev")
+    if not watch_cache:
+        cmd.append("--no-watch-cache")
 
     crash_log = server_dir() / conventions.WATCHDOG_CRASH_LOG_FILE
     crash_log.parent.mkdir(parents=True, exist_ok=True)
@@ -381,6 +448,8 @@ if __name__ == "__main__":
     parser.add_argument("--max-restarts", type=int, default=5)
     parser.add_argument("--apps-dir", default=None)
     parser.add_argument("--dev", action="store_true")
+    parser.add_argument("--watch-cache", action="store_true", default=True)
+    parser.add_argument("--no-watch-cache", dest="watch_cache", action="store_false")
     args = parser.parse_args()
 
     _setup_watchdog_logging()
@@ -392,4 +461,5 @@ if __name__ == "__main__":
         max_restarts=args.max_restarts,
         apps_dir=args.apps_dir,
         dev=args.dev,
+        watch_cache=args.watch_cache,
     )

@@ -19,6 +19,7 @@ from click.testing import CliRunner
 from amplifier_distro import conventions
 from amplifier_distro.server.daemon import write_pid
 from amplifier_distro.server.watchdog import (
+    _get_cache_fingerprint,
     check_health,
     is_watchdog_running,
     start_watchdog,
@@ -533,3 +534,195 @@ class TestRestartServerSupervisorDetection:
             "busy" in r.message.lower() or "retry" in r.message.lower()
             for r in caplog.records
         )
+
+
+# ---------------------------------------------------------------------------
+# Cache change detection
+# ---------------------------------------------------------------------------
+
+
+class TestCacheChangeDetection:
+    """Verify cache fingerprint computation and cache-change-triggered restarts."""
+
+    # --- Fingerprint unit tests (real filesystem via tmp_path) ---
+
+    def test_get_cache_fingerprint_with_entries(self, tmp_path: Path) -> None:
+        """Fingerprint of a directory with entries is non-empty and deterministic."""
+        (tmp_path / "module-abc123").mkdir()
+        (tmp_path / "bundle-def456").mkdir()
+
+        fp1 = _get_cache_fingerprint(tmp_path)
+        fp2 = _get_cache_fingerprint(tmp_path)
+
+        assert fp1 != ""
+        assert fp1 == fp2  # deterministic
+        assert "module-abc123" in fp1
+        assert "bundle-def456" in fp1
+
+    def test_get_cache_fingerprint_empty_dir(self, tmp_path: Path) -> None:
+        """Fingerprint of an empty directory is an empty string."""
+        assert _get_cache_fingerprint(tmp_path) == ""
+
+    def test_get_cache_fingerprint_missing_dir(self, tmp_path: Path) -> None:
+        """Fingerprint of a non-existent directory is an empty string."""
+        missing = tmp_path / "does-not-exist"
+        assert _get_cache_fingerprint(missing) == ""
+
+    def test_get_cache_fingerprint_ignores_dotfiles(self, tmp_path: Path) -> None:
+        """Entries starting with '.' are excluded from the fingerprint."""
+        (tmp_path / ".hidden").mkdir()
+        (tmp_path / "visible").mkdir()
+
+        fp = _get_cache_fingerprint(tmp_path)
+
+        assert ".hidden" not in fp
+        assert "visible" in fp
+
+    # --- Loop integration tests (mocked) ---
+
+    @patch("amplifier_distro.server.watchdog.cleanup_pid")
+    @patch("amplifier_distro.server.watchdog.write_pid")
+    @patch("amplifier_distro.server.watchdog._restart_server")
+    @patch("amplifier_distro.server.watchdog.check_health")
+    @patch("amplifier_distro.server.watchdog.time.monotonic")
+    @patch("amplifier_distro.server.watchdog.time.sleep")
+    @patch("amplifier_distro.server.watchdog._get_cache_fingerprint")
+    def test_restarts_on_cache_change(
+        self,
+        mock_fingerprint: MagicMock,
+        mock_sleep: MagicMock,
+        mock_monotonic: MagicMock,
+        mock_health: MagicMock,
+        mock_restart: MagicMock,
+        mock_write_pid: MagicMock,
+        mock_cleanup: MagicMock,
+    ) -> None:
+        """Server is restarted immediately when the cache fingerprint changes."""
+        # health always succeeds; fingerprint changes on first loop iteration,
+        # then KeyboardInterrupt terminates the second iteration
+        mock_health.return_value = True
+        mock_fingerprint.side_effect = ["fp-initial", "fp-changed", KeyboardInterrupt()]
+        mock_sleep.return_value = None
+        mock_monotonic.return_value = 0.0
+
+        from amplifier_distro.server.watchdog import run_watchdog_loop
+
+        with contextlib.suppress(KeyboardInterrupt):
+            run_watchdog_loop(check_interval=1, restart_after=300, max_restarts=5)
+
+        mock_restart.assert_called_once()
+
+    @patch("amplifier_distro.server.watchdog.cleanup_pid")
+    @patch("amplifier_distro.server.watchdog.write_pid")
+    @patch("amplifier_distro.server.watchdog._restart_server")
+    @patch("amplifier_distro.server.watchdog.check_health")
+    @patch("amplifier_distro.server.watchdog.time.monotonic")
+    @patch("amplifier_distro.server.watchdog.time.sleep")
+    @patch("amplifier_distro.server.watchdog._get_cache_fingerprint")
+    def test_no_restart_when_cache_unchanged(
+        self,
+        mock_fingerprint: MagicMock,
+        mock_sleep: MagicMock,
+        mock_monotonic: MagicMock,
+        mock_health: MagicMock,
+        mock_restart: MagicMock,
+        mock_write_pid: MagicMock,
+        mock_cleanup: MagicMock,
+    ) -> None:
+        """No restart occurs when the cache fingerprint is stable."""
+        mock_health.return_value = True
+        # Same fingerprint every call — no change
+        mock_fingerprint.side_effect = [
+            "fp-stable",
+            "fp-stable",
+            "fp-stable",
+            KeyboardInterrupt(),
+        ]
+        mock_sleep.return_value = None
+        mock_monotonic.return_value = 0.0
+
+        from amplifier_distro.server.watchdog import run_watchdog_loop
+
+        with contextlib.suppress(KeyboardInterrupt):
+            run_watchdog_loop(check_interval=1, restart_after=300, max_restarts=5)
+
+        mock_restart.assert_not_called()
+
+    @patch("amplifier_distro.server.watchdog.cleanup_pid")
+    @patch("amplifier_distro.server.watchdog.write_pid")
+    @patch("amplifier_distro.server.watchdog._restart_server")
+    @patch("amplifier_distro.server.watchdog.check_health")
+    @patch("amplifier_distro.server.watchdog.time.monotonic")
+    @patch("amplifier_distro.server.watchdog.time.sleep")
+    @patch("amplifier_distro.server.watchdog._get_cache_fingerprint")
+    def test_no_cache_watch_when_disabled(
+        self,
+        mock_fingerprint: MagicMock,
+        mock_sleep: MagicMock,
+        mock_monotonic: MagicMock,
+        mock_health: MagicMock,
+        mock_restart: MagicMock,
+        mock_write_pid: MagicMock,
+        mock_cleanup: MagicMock,
+    ) -> None:
+        """_get_cache_fingerprint is never called when watch_cache=False."""
+        mock_health.side_effect = [True, True, KeyboardInterrupt()]
+        mock_sleep.return_value = None
+        mock_monotonic.return_value = 0.0
+
+        from amplifier_distro.server.watchdog import run_watchdog_loop
+
+        with contextlib.suppress(KeyboardInterrupt):
+            run_watchdog_loop(
+                check_interval=1,
+                restart_after=300,
+                max_restarts=5,
+                watch_cache=False,
+            )
+
+        mock_fingerprint.assert_not_called()
+        mock_restart.assert_not_called()
+
+    @patch("amplifier_distro.server.watchdog.cleanup_pid")
+    @patch("amplifier_distro.server.watchdog.write_pid")
+    @patch("amplifier_distro.server.watchdog._restart_server")
+    @patch("amplifier_distro.server.watchdog.check_health")
+    @patch("amplifier_distro.server.watchdog.time.monotonic")
+    @patch("amplifier_distro.server.watchdog.time.sleep")
+    @patch("amplifier_distro.server.watchdog._get_cache_fingerprint")
+    def test_cache_restart_counts_toward_max(
+        self,
+        mock_fingerprint: MagicMock,
+        mock_sleep: MagicMock,
+        mock_monotonic: MagicMock,
+        mock_health: MagicMock,
+        mock_restart: MagicMock,
+        mock_write_pid: MagicMock,
+        mock_cleanup: MagicMock,
+    ) -> None:
+        """A cache-triggered restart counts toward max_restarts.
+
+        With max_restarts=1:
+        - Iteration 1: healthy + cache change → cache restart (restart_count=1)
+        - Iteration 2: unhealthy → first_failure_time set
+        - Iteration 3: unhealthy, elapsed > threshold → max_restarts hit → loop exits
+        No health-triggered restart fires because the counter was already exhausted.
+        """
+        # First health check True (triggers cache restart), then all False
+        mock_health.side_effect = [True, False, False]
+        # init fingerprint + per-loop-iteration calls (change once, stable after)
+        mock_fingerprint.side_effect = ["fp-old", "fp-new", "fp-new", "fp-new"]
+        mock_sleep.return_value = None
+        # monotonic calls: first_failure at 100, elapsed at 200 (>15s threshold)
+        mock_monotonic.side_effect = [100, 200]
+
+        from amplifier_distro.server.watchdog import run_watchdog_loop
+
+        run_watchdog_loop(
+            check_interval=1,
+            restart_after=15,
+            max_restarts=1,
+        )
+
+        # Only the cache restart fires; health restart is blocked by max_restarts
+        assert mock_restart.call_count == 1

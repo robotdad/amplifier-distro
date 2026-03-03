@@ -60,6 +60,7 @@ WATCHDOG_CRASH_LOG_FILE = "watchdog-crash.log"
 # --- Watchdog ---
 WATCHDOG_PID_FILE = "watchdog.pid"  # relative to SERVER_DIR
 WATCHDOG_LOG_FILE = "watchdog.log"
+WATCHDOG_CACHE_STAMP_FILE = "watchdog-cache.stamp"  # relative to SERVER_DIR
 
 # --- Platform Service ---
 SERVICE_NAME = "amplifier-distro"  # systemd unit name

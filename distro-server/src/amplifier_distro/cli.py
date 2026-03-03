@@ -49,7 +49,9 @@ def main() -> None:
 
 @main.command("serve")
 @click.option(
-    "--host", default="0.0.0.0", help="Bind host (use 127.0.0.1 to restrict to localhost)"
+    "--host",
+    default="0.0.0.0",
+    help="Bind host (use 127.0.0.1 to restrict to localhost)",
 )
 @click.option(
     "--port", default=conventions.SERVER_DEFAULT_PORT, type=int, help="Bind port"
@@ -288,8 +290,11 @@ def service_cmd_status() -> None:
     hidden=True,
     help="Running under service manager — exit to trigger restart.",
 )
-def watchdog_cmd(host: str, port: int, supervised: bool) -> None:
+@click.option("--watch-cache/--no-watch-cache", default=True, hidden=True)
+def watchdog_cmd(host: str, port: int, supervised: bool, watch_cache: bool) -> None:
     """Run the health watchdog (for service supervision — not user-facing)."""
     from .server.watchdog import run_watchdog_loop
 
-    run_watchdog_loop(host=host, port=port, supervised=supervised)
+    run_watchdog_loop(
+        host=host, port=port, supervised=supervised, watch_cache=watch_cache
+    )
