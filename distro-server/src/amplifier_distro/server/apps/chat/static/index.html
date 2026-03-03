@@ -1940,7 +1940,7 @@
     `;
   }
 
-  function SessionOverflowMenu({ isPinned, canPin, onPin, onRename, onClose }) {
+  function SessionOverflowMenu({ isPinned, canPin, onPin, canRename, onRename, onClose }) {
     const menuRef = useRef(null);
     useEffect(() => {
       function handleClickOutside(e) {
@@ -1962,10 +1962,12 @@
             ${isPinned ? 'Unpin' : 'Pin to top'}
           </button>
         `}
-        <button class="session-overflow-item" role="menuitem"
-          onClick=${(e) => { e.stopPropagation(); onRename(); onClose(); }}>
-          Rename
-        </button>
+        ${canRename && html`
+          <button class="session-overflow-item" role="menuitem"
+            onClick=${(e) => { e.stopPropagation(); onRename(); onClose(); }}>
+            Rename
+          </button>
+        `}
       </div>
     `;
   }
@@ -2115,21 +2117,28 @@
               </span>`
           }
         </div>
-        <div class=${'session-card-actions' + (menuOpen ? ' menu-open' : '')}>
-          <button class="session-card-action-btn" title="More actions" aria-label="Session actions"
-            aria-haspopup="menu"
-            onClick=${(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
-          ><${Icon} name="more-vertical" /></button>
-          ${menuOpen && html`
-            <${SessionOverflowMenu}
-              isPinned=${isPinned}
-              canPin=${!!session.sessionId && (session.turnCount || session.messageCount || 0) > 0}
-              onPin=${() => onTogglePin(session.sessionId, isPinned)}
-              onRename=${(e) => startEditing(e)}
-              onClose=${() => setMenuOpen(false)}
-            />
-          `}
-        </div>
+        ${(() => {
+          const hasSession = !!session.sessionId && (session.turnCount || session.messageCount || 0) > 0;
+          if (!hasSession) return null;
+          return html`
+            <div class=${'session-card-actions' + (menuOpen ? ' menu-open' : '')}>
+              <button class="session-card-action-btn" title="More actions" aria-label="Session actions"
+                aria-haspopup="menu"
+                onClick=${(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
+              ><${Icon} name="more-vertical" /></button>
+              ${menuOpen && html`
+                <${SessionOverflowMenu}
+                  isPinned=${isPinned}
+                  canPin=${hasSession}
+                  onPin=${() => onTogglePin(session.sessionId, isPinned)}
+                  canRename=${hasSession}
+                  onRename=${(e) => startEditing(e)}
+                  onClose=${() => setMenuOpen(false)}
+                />
+              `}
+            </div>
+          `;
+        })()}
         <div class="session-card-cwd session-card-cwd-row" title=${session.cwd || '~'}>
           <${Icon} name="folder" className="sm" />
           <span class="session-card-line-text">${session.cwd || '~'}</span>
