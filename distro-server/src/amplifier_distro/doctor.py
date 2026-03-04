@@ -21,13 +21,12 @@ import subprocess
 from enum import StrEnum
 from pathlib import Path
 
-from pydantic import BaseModel, Field
 import yaml
+from pydantic import BaseModel, Field
 
-from . import conventions
+from . import conventions, tailscale
 from .distro_settings import load as load_settings
 from .server.daemon import is_running, read_pid
-
 
 # ---------------------------------------------------------------------------
 # Models
@@ -450,6 +449,144 @@ def _check_voice_configured(home: Path) -> DiagnosticCheck:
     )
 
 
+def _check_shadow_group() -> DiagnosticCheck:
+    """Check if current user is in the shadow group (Linux only).
+
+    The shadow group grants read access to /etc/shadow, which is required
+    for PAM-based authentication to work without running as root.
+    """
+    if platform.system() != "Linux":
+        return DiagnosticCheck(
+            name="Shadow group",
+            status=CheckStatus.ok,
+            message="Skipped (Linux only)",
+        )
+
+    import grp
+
+    try:
+        shadow_group = grp.getgrnam("shadow")
+    except KeyError:
+        return DiagnosticCheck(
+            name="Shadow group",
+            status=CheckStatus.warning,
+            message="shadow group does not exist on this system",
+        )
+
+    try:
+        username = os.getlogin()
+    except OSError:
+        username = os.environ.get("USER") or os.environ.get("LOGNAME") or ""
+
+    if not username:
+        return DiagnosticCheck(
+            name="Shadow group",
+            status=CheckStatus.warning,
+            message="Could not determine current username",
+        )
+
+    if username in shadow_group.gr_mem:
+        return DiagnosticCheck(
+            name="Shadow group",
+            status=CheckStatus.ok,
+            message=f"User '{username}' is in the shadow group",
+        )
+
+    return DiagnosticCheck(
+        name="Shadow group",
+        status=CheckStatus.warning,
+        message=(
+            f"User '{username}' is not in the shadow group. "
+            "PAM auth cannot read /etc/shadow."
+        ),
+        fix_available=True,
+        fix_description=f"Run: sudo usermod -aG shadow {username}",
+    )
+
+
+def _check_tls_certs() -> DiagnosticCheck:
+    """Check TLS certificate status based on configured TLS mode.
+
+    Modes:
+    - off: TLS disabled, no certs needed (ok).
+    - manual: Checks that certfile and keyfile paths exist.
+    - auto: Checks that certs directory has content; they're generated on first start.
+    """
+    settings = load_settings()
+    mode = settings.server.tls.mode
+
+    if mode == "off":
+        return DiagnosticCheck(
+            name="TLS certificates",
+            status=CheckStatus.ok,
+            message="TLS is disabled (mode=off)",
+        )
+
+    if mode == "manual":
+        certfile = Path(settings.server.tls.certfile)
+        keyfile = Path(settings.server.tls.keyfile)
+        if certfile.exists() and keyfile.exists():
+            return DiagnosticCheck(
+                name="TLS certificates",
+                status=CheckStatus.ok,
+                message=f"Manual cert: {certfile}",
+            )
+        missing = []
+        if not certfile.exists():
+            missing.append(f"certfile={certfile}")
+        if not keyfile.exists():
+            missing.append(f"keyfile={keyfile}")
+        return DiagnosticCheck(
+            name="TLS certificates",
+            status=CheckStatus.error,
+            message=f"Manual TLS cert/key not found: {', '.join(missing)}",
+        )
+
+    # mode == "auto"
+    certs_dir = Path(conventions.DISTRO_CERTS_DIR).expanduser()
+    if certs_dir.exists() and any(certs_dir.iterdir()):
+        return DiagnosticCheck(
+            name="TLS certificates",
+            status=CheckStatus.ok,
+            message=f"Certs found in {certs_dir}",
+        )
+    return DiagnosticCheck(
+        name="TLS certificates",
+        status=CheckStatus.warning,
+        message=f"No certs in {certs_dir}; will be generated on first start",
+    )
+
+
+def _check_tailscale() -> DiagnosticCheck:
+    """Informational check for Tailscale connectivity.
+
+    Returns ok if Tailscale is connected (with DNS name), warning if installed
+    but not connected, or ok with optional note if not installed.
+    """
+    if not shutil.which("tailscale"):
+        return DiagnosticCheck(
+            name="Tailscale",
+            status=CheckStatus.ok,
+            message="Not installed (optional for remote access)",
+        )
+
+    dns_name = tailscale.get_dns_name()
+    if dns_name:
+        return DiagnosticCheck(
+            name="Tailscale",
+            status=CheckStatus.ok,
+            message=f"Connected: {dns_name}",
+        )
+
+    return DiagnosticCheck(
+        name="Tailscale",
+        status=CheckStatus.warning,
+        message=(
+            "Installed but not connected. Run 'tailscale up' to enable remote access."
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -498,6 +635,11 @@ def run_diagnostics(
     # Integration checks
     report.checks.append(_check_slack_configured(amplifier_home))
     report.checks.append(_check_voice_configured(amplifier_home))
+
+    # Security checks
+    report.checks.append(_check_shadow_group())
+    report.checks.append(_check_tls_certs())
+    report.checks.append(_check_tailscale())
 
     return report
 
