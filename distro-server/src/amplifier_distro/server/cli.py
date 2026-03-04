@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import socket
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -365,6 +366,9 @@ def _run_foreground(
     *,
     stub: bool = False,
     no_browser: bool = False,
+    tls_mode: str = "off",
+    ssl_certfile: str = "",
+    ssl_keyfile: str = "",
 ) -> None:
     """Run the server in the foreground."""
     import logging
@@ -473,13 +477,24 @@ def _run_foreground(
     # Tailscale HTTPS: auto-detect and set up reverse proxy
     ts_url = _setup_tailscale(port)
 
+    # TLS certificate resolution
+    from amplifier_distro.server.tls import resolve_cert
+
+    ssl_kwargs: dict[str, Any] = {}
+    tls_pair = resolve_cert(mode=tls_mode, certfile=ssl_certfile, keyfile=ssl_keyfile)
+    if tls_pair is not None:
+        ssl_kwargs["ssl_certfile"] = str(tls_pair[0])
+        ssl_kwargs["ssl_keyfile"] = str(tls_pair[1])
+
+    scheme = "https" if ssl_kwargs else "http"
+
     click.echo(f"Starting Amplifier Distro Server on {host}:{port}")
-    click.echo(f"  Local: http://{host}:{port}")
+    click.echo(f"  Local: {scheme}://{host}:{port}")
     click.echo(f"  Session: {session_path}")
     click.echo(f"  Logs: {log_file}")
     if ts_url:
         click.echo(f"  HTTPS: {ts_url}  (Tailscale)")
-    click.echo(f"  API docs: http://{host}:{port}/api/docs")
+    click.echo(f"  API docs: {scheme}://{host}:{port}/api/docs")
 
     if dev:
         click.echo(
@@ -510,6 +525,7 @@ def _run_foreground(
             log_level="info",
             ws_ping_interval=20,
             ws_ping_timeout=20,
+            **ssl_kwargs,
         )
     else:
         uvicorn.run(
@@ -519,6 +535,7 @@ def _run_foreground(
             log_level="info",
             ws_ping_interval=20,
             ws_ping_timeout=20,
+            **ssl_kwargs,
         )
 
 
