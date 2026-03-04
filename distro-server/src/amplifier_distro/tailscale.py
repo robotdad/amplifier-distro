@@ -138,10 +138,11 @@ def provision_cert(cert_dir: Path) -> tuple[Path, Path] | None:
                 click.echo(
                     "  HTTPS certificates are not enabled for your Tailscale account."
                 )
-                click.echo("  Fix: Enable HTTPS in Tailscale admin console:")
+                click.echo("  Fix: Enable HTTPS in your Tailscale admin console:")
                 click.echo(
-                    click.style("    Admin console → DNS → Enable HTTPS", bold=True)
+                    click.style("    https://login.tailscale.com/admin/dns", bold=True)
                 )
+                click.echo("  Check 'Enable HTTPS' then restart the server.")
             else:
                 click.echo(f"  {stderr}")
             click.echo("")

@@ -340,6 +340,31 @@ class TestProvisionCert:
             assert "admin console" in captured.out.lower()
             assert "HTTPS" in captured.out
 
+    def test_does_not_support_shows_admin_console_url(self, tmp_path: Path, capsys):
+        """'does not support' stderr → fix shows direct admin console URL."""
+        cert_dir = tmp_path / "certs"
+        cert_dir.mkdir()
+        with (
+            patch(
+                "amplifier_distro.tailscale.get_dns_name",
+                return_value="box.ts.net",
+            ),
+            patch(
+                "amplifier_distro.tailscale.subprocess.run",
+                return_value=subprocess.CompletedProcess(
+                    args=[],
+                    returncode=1,
+                    stdout="",
+                    stderr="box.ts.net does not support getting TLS certs",
+                ),
+            ),
+        ):
+            result = tailscale.provision_cert(cert_dir)
+            assert result is None
+            captured = capsys.readouterr()
+            assert "https://login.tailscale.com/admin/dns" in captured.out
+            assert "Enable HTTPS" in captured.out
+
     def test_other_error_shows_raw_stderr_without_detail_prefix(
         self, tmp_path: Path, capsys
     ):

@@ -482,23 +482,46 @@ def _run_foreground(
     services = init_services(dev_mode=dev)
     click.echo(f"Services: backend={type(services.backend).__name__}")
 
-    # TLS certificate resolution (needed before auth setup)
-    from amplifier_distro.server.tls import resolve_cert
+    # Tailscale HTTPS: auto-detect and set up reverse proxy first.
+    # Must happen before TLS resolution so we can skip native TLS when
+    # tailscale serve is handling HTTPS as a reverse proxy.
+    ts_url = _setup_tailscale(port)
 
+    # TLS certificate resolution — skip if tailscale serve is handling HTTPS.
+    # tailscale serve proxies HTTPS (port 443) → plain HTTP on our port.
+    # Enabling native TLS here would break it: tailscale sends plain HTTP but
+    # uvicorn would expect TLS, causing 502 Bad Gateway errors.
     ssl_kwargs: dict[str, Any] = {}
-    tls_pair = resolve_cert(mode=tls_mode, certfile=ssl_certfile, keyfile=ssl_keyfile)
-    if tls_pair is not None:
-        cert_path, key_path = tls_pair
-        ssl_kwargs["ssl_certfile"] = str(cert_path)
-        ssl_kwargs["ssl_keyfile"] = str(key_path)
+    if ts_url:
+        # Tailscale serve is active as reverse proxy — native TLS not needed
+        if tls_mode != "off":
+            click.echo(click.style("  ✓ HTTPS provided by Tailscale serve", fg="green"))
+            click.echo(f"    {ts_url}")
+        scheme = "https"
+    else:
+        # No tailscale serve — resolve certs for native TLS if requested
+        from amplifier_distro.server.tls import resolve_cert
 
-    # Auth setup (conditional: TLS + Linux + enabled)
+        tls_paths = resolve_cert(
+            mode=tls_mode, certfile=ssl_certfile, keyfile=ssl_keyfile
+        )
+        if tls_paths is not None:
+            ssl_kwargs["ssl_certfile"] = str(tls_paths[0])
+            ssl_kwargs["ssl_keyfile"] = str(tls_paths[1])
+            scheme = "https"
+        else:
+            scheme = "http"
+
+    # Auth setup (conditional: TLS active + Linux + enabled).
+    # TLS is considered active when either native TLS (ssl_kwargs) or
+    # tailscale serve (ts_url) is providing an encrypted transport.
     from amplifier_distro.distro_settings import load as load_settings
     from amplifier_distro.server.auth import get_or_create_secret, is_auth_applicable
 
     settings = load_settings()
     auth_secret = ""
-    if tls_pair is not None and is_auth_applicable(
+    tls_active = bool(ssl_kwargs) or bool(ts_url)
+    if tls_active and is_auth_applicable(
         tls_active=True,
         auth_enabled=settings.server.auth.enabled,
     ):
@@ -536,11 +559,6 @@ def _run_foreground(
         dev_mode=dev,
         logger=logger,
     )
-
-    # Tailscale HTTPS: auto-detect and set up reverse proxy
-    ts_url = _setup_tailscale(port)
-
-    scheme = "https" if ssl_kwargs else "http"
 
     click.echo(f"Starting Amplifier Distro Server on {host}:{port}")
     click.echo(f"  Local: {scheme}://{host}:{port}")

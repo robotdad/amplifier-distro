@@ -296,3 +296,103 @@ class TestTLSStartupEcho:
         assert local_lines, "Expected a 'Local:' line in startup output"
         assert "http://" in local_lines[0]
         assert "https://" not in local_lines[0]
+
+
+# ---------------------------------------------------------------------------
+# Tests - tailscale serve active (Issue 2)
+# ---------------------------------------------------------------------------
+
+
+class TestTailscaleServeSkipsNativeTLS:
+    """When tailscale serve is active, native TLS must NOT be enabled."""
+
+    def test_uvicorn_has_no_ssl_when_tailscale_serve_active(
+        self, foreground_env
+    ) -> None:
+        """When tailscale serve is active, no ssl args even with tls_mode=auto.
+
+        This is the critical regression test: certs ARE available (resolve_cert
+        would return paths), but because tailscale serve is handling HTTPS as a
+        reverse proxy, uvicorn must run plain HTTP so tailscale can reach it.
+        """
+        from unittest.mock import patch
+
+        from amplifier_distro.server.cli import _run_foreground
+
+        # Certs ARE available — if the bug were present, ssl args would be passed
+        fake_cert = foreground_env.tmp_path / "cert.pem"
+        fake_key = foreground_env.tmp_path / "key.pem"
+        fake_cert.write_text("cert")
+        fake_key.write_text("key")
+        foreground_env.mock_resolve.return_value = (fake_cert, fake_key)
+
+        # _setup_tailscale returns a URL → tailscale serve is active
+        with patch(
+            "amplifier_distro.server.cli._setup_tailscale",
+            return_value="https://box.ts.net",
+        ):
+            _run_foreground(
+                host="127.0.0.1",
+                port=8080,
+                apps_dir=None,
+                reload=False,
+                dev=True,
+                tls_mode="auto",
+            )
+
+        foreground_env.mock_uvicorn.run.assert_called_once()
+        kwargs = foreground_env.mock_uvicorn.run.call_args.kwargs
+        assert "ssl_certfile" not in kwargs, (
+            "ssl_certfile should NOT be passed when tailscale serve is active"
+        )
+        assert "ssl_keyfile" not in kwargs, (
+            "ssl_keyfile should NOT be passed when tailscale serve is active"
+        )
+
+    def test_resolve_cert_not_called_when_tailscale_serve_active(
+        self, foreground_env
+    ) -> None:
+        """resolve_cert must NOT be called when tailscale serve provides HTTPS."""
+        from unittest.mock import patch
+
+        from amplifier_distro.server.cli import _run_foreground
+
+        with patch(
+            "amplifier_distro.server.cli._setup_tailscale",
+            return_value="https://box.ts.net",
+        ):
+            _run_foreground(
+                host="127.0.0.1",
+                port=8080,
+                apps_dir=None,
+                reload=False,
+                dev=True,
+                tls_mode="auto",
+            )
+
+        foreground_env.mock_resolve.assert_not_called()
+
+    def test_startup_echo_shows_https_when_tailscale_serve_active(
+        self, foreground_env
+    ) -> None:
+        """Startup output should indicate HTTPS when tailscale serve is active."""
+        from unittest.mock import patch
+
+        from amplifier_distro.server.cli import _run_foreground
+
+        with patch(
+            "amplifier_distro.server.cli._setup_tailscale",
+            return_value="https://box.ts.net",
+        ):
+            _run_foreground(
+                host="127.0.0.1",
+                port=8080,
+                apps_dir=None,
+                reload=False,
+                dev=True,
+                tls_mode="auto",
+            )
+
+        # Should echo about tailscale providing HTTPS
+        all_output = "\n".join(foreground_env.echo_calls)
+        assert "Tailscale" in all_output or "tailscale" in all_output.lower()

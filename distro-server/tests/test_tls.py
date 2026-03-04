@@ -159,17 +159,17 @@ class TestResolveCert:
             captured = capsys.readouterr()
             assert "--operator" not in captured.out
 
-    def test_auto_self_signed_fallback_mentions_admin_console(
+    def test_auto_self_signed_fallback_shows_admin_console_url(
         self, tmp_path: Path, capsys
     ) -> None:
-        """Self-signed fallback should mention Tailscale admin console."""
+        """Self-signed fallback should show direct admin console URL."""
         with patch(
             "amplifier_distro.server.tls.tailscale.provision_cert",
             return_value=None,
         ):
             resolve_cert(mode="auto", cert_dir=tmp_path)
             captured = capsys.readouterr()
-            assert "admin console" in captured.out.lower()
+            assert "https://login.tailscale.com/admin/dns" in captured.out
 
     def test_auto_uses_default_cert_dir(self) -> None:
         """When cert_dir is None, auto mode uses conventions.DISTRO_CERTS_DIR."""

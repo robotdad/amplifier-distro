@@ -189,6 +189,6 @@ def resolve_cert(
     click.echo("")
     click.echo(click.style("  ⚠ Using self-signed certificate", fg="yellow", bold=True))
     click.echo("  Browsers will show a security warning on first visit.")
-    click.echo("  For trusted certs, enable HTTPS in your Tailscale admin console.")
+    click.echo("  For trusted certs: https://login.tailscale.com/admin/dns")
     click.echo("")
     return generate_self_signed_cert(cert_dir)
