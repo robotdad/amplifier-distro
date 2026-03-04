@@ -7,7 +7,10 @@ distro bundle.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -263,10 +266,17 @@ class ProviderRegistrationResult:
     settings_updated: bool = False
     overlay_updated: bool = False
     overlay_error: str = ""
+    module_installed: bool = False
+    module_error: str = ""
 
     @property
     def ok(self) -> bool:
-        return self.key_saved and self.settings_updated and self.overlay_updated
+        return (
+            self.key_saved
+            and self.settings_updated
+            and self.overlay_updated
+            and self.module_installed
+        )
 
 
 def get_provider_catalog() -> list[dict[str, object]]:
@@ -324,6 +334,8 @@ def handle_provider_request(
         }
         if reg.overlay_error:
             result["overlay_error"] = reg.overlay_error
+        if reg.module_error:
+            result["module_error"] = reg.module_error
         return result
 
     if provider and provider in PROVIDERS:
@@ -344,6 +356,8 @@ def handle_provider_request(
         }
         if reg.overlay_error:
             result["overlay_error"] = reg.overlay_error
+        if reg.module_error:
+            result["module_error"] = reg.module_error
         return result
 
     return {"status": "error", "detail": "Provide api_key or provider ID"}
@@ -465,6 +479,23 @@ def register_provider(provider_id: str, api_key: str) -> ProviderRegistrationRes
     add_provider_config(provider_id)
     result.settings_updated = True
 
+    # 2.5. Install provider module and SDK dependencies into the venv.
+    # Provider modules are fetched as git repos and loaded via sys.path,
+    # but their SDK dependencies (e.g. 'anthropic', 'openai') must be
+    # installed as packages.  This mirrors amplifier-app-cli's
+    # ensure_provider_installed() in provider_sources.py.
+    if provider.source_url:
+        try:
+            _install_provider_module(provider.source_url)
+            result.module_installed = True
+        except (RuntimeError, OSError) as exc:
+            result.module_error = str(exc)
+            logger.warning(
+                "Provider module install failed for %s: %s", provider_id, exc
+            )
+    else:
+        result.module_installed = True  # No source URL; nothing to install
+
     # 3. Add provider include to overlay bundle
     try:
         overlay.ensure_overlay(provider)
@@ -473,3 +504,150 @@ def register_provider(provider_id: str, api_key: str) -> ProviderRegistrationRes
         result.overlay_error = str(exc)
 
     return result
+
+
+# ---------------------------------------------------------------------------
+#  Provider module installation
+# ---------------------------------------------------------------------------
+
+
+def _resolve_git_source(source_url: str) -> str:
+    """Resolve a git source URL to a local filesystem path.
+
+    Uses foundation's ``SimpleSourceResolver`` to clone/cache the repo.
+    Safe to call from both sync and async contexts (uses a thread pool
+    when an event loop is already running).
+
+    Returns the string path to the resolved local directory.
+    """
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+    from pathlib import Path
+
+    from amplifier_foundation.sources import SimpleSourceResolver
+
+    from amplifier_distro.conventions import AMPLIFIER_HOME
+
+    cache_dir = Path(AMPLIFIER_HOME).expanduser() / "cache"
+
+    async def _resolve() -> str:
+        resolver = SimpleSourceResolver(cache_dir=cache_dir)
+        result = await resolver.resolve(source_url)
+        return str(result.active_path)
+
+    def _run_in_new_loop() -> str:
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(_resolve())
+        finally:
+            loop.close()
+
+    try:
+        asyncio.get_running_loop()
+        # Already inside an event loop (e.g. FastAPI) — run in a thread
+        # with its own loop to avoid "cannot run nested event loop" errors.
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(_run_in_new_loop).result()
+    except RuntimeError:
+        # No running loop — safe to create one directly.
+        return _run_in_new_loop()
+
+
+def _refresh_import_caches() -> None:
+    """Refresh Python's view of installed packages after a subprocess install."""
+    import importlib
+    import importlib.metadata
+    import site
+
+    importlib.invalidate_caches()
+    for site_dir in site.getsitepackages():
+        site.addsitedir(site_dir)
+    if hasattr(importlib.metadata, "distributions"):
+        list(importlib.metadata.distributions())
+
+
+def _install_provider_module(source_url: str) -> None:
+    """Install a provider module and its SDK dependencies into the current venv.
+
+    Resolves the git source URL to a local cache path, then runs
+    ``uv pip install -e`` so that the module's declared dependencies
+    (e.g. the ``anthropic`` or ``openai`` SDK) are installed transitively.
+
+    Raises ``RuntimeError`` on failure.
+    """
+    import subprocess
+    import sys
+
+    module_path = _resolve_git_source(source_url)
+
+    result = subprocess.run(
+        [
+            "uv",
+            "pip",
+            "install",
+            "-e",
+            module_path,
+            "--python",
+            sys.executable,
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"uv pip install failed for {source_url}: {result.stderr.strip()}"
+        )
+
+    _refresh_import_caches()
+
+
+def _provider_module_importable(module_id: str) -> bool:
+    """Check whether a provider module (and its SDK) are importable."""
+    import importlib
+
+    module_name = f"amplifier_module_{module_id.replace('-', '_')}"
+    try:
+        importlib.import_module(module_name)
+        return True
+    except ImportError:
+        return False
+
+
+def ensure_configured_provider_modules() -> list[str]:
+    """Install modules for all configured providers that aren't yet importable.
+
+    Scans the ``PROVIDERS`` catalog for entries with a ``source_url``,
+    skips those whose module is already importable, and installs the rest.
+    Intended for server startup recovery after a venv wipe.
+
+    Returns a list of provider IDs whose modules were installed.
+    """
+    import os
+
+    from amplifier_distro.server.apps.settings import load_keys
+
+    installed: list[str] = []
+    keys = load_keys()
+
+    # Only install modules for providers that have API keys configured.
+    # No key => provider won't be used => no point installing its module.
+    for pid, provider in PROVIDERS.items():
+        if not provider.source_url:
+            continue
+        key = os.environ.get(provider.env_var) or keys.get(provider.env_var)
+        if not key:
+            continue
+        if _provider_module_importable(provider.module_id):
+            continue
+
+        try:
+            _install_provider_module(provider.source_url)
+            installed.append(pid)
+            logger.info("Installed provider module for %s", pid)
+        except (RuntimeError, OSError):
+            logger.warning(
+                "Failed to install provider module for %s", pid, exc_info=True
+            )
+
+    return installed
