@@ -38,10 +38,24 @@ Quick-start examples:
     epilog=EPILOG,
     help="Amplifier Experience Server management tool.\n\n"
     "Manages the experience server, backups, and platform service.",
+    invoke_without_command=True,
 )
 @click.version_option(package_name="amplifier-distro")
-def main() -> None:
+@click.pass_context
+def main(ctx: click.Context) -> None:
     """Amplifier Experience Server management tool."""
+    if ctx.invoked_subcommand is None:
+        from . import conventions
+        from .server.cli import _run_foreground
+
+        click.echo("Tip: Use 'amp-distro serve' to enable access from other devices")
+        _run_foreground(
+            "127.0.0.1",
+            conventions.SERVER_DEFAULT_PORT,
+            None,
+            False,
+            False,
+        )
 
 
 # -- Server --------------------------------------------------------------
