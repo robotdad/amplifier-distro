@@ -57,6 +57,28 @@ from amplifier_distro import conventions
     is_flag=True,
     help="Don't auto-open browser on startup",
 )
+@click.option(
+    "--tls",
+    "tls_mode",
+    type=click.Choice(["auto", "off", "manual"], case_sensitive=False),
+    default="off",
+    help="TLS mode: auto (self-signed), off (plain HTTP), manual (provide certs)",
+)
+@click.option(
+    "--ssl-certfile",
+    default="",
+    help="Path to SSL certificate file (implies --tls manual)",
+)
+@click.option(
+    "--ssl-keyfile",
+    default="",
+    help="Path to SSL private key file",
+)
+@click.option(
+    "--no-auth",
+    is_flag=True,
+    help="Disable authentication",
+)
 @click.pass_context
 def serve(
     ctx: click.Context,
@@ -67,6 +89,10 @@ def serve(
     dev: bool,
     stub: bool,
     no_browser: bool,
+    tls_mode: str,
+    ssl_certfile: str,
+    ssl_keyfile: str,
+    no_auth: bool,
 ) -> None:
     """Amplifier distro server.
 
@@ -76,9 +102,21 @@ def serve(
     ctx.ensure_object(dict)
     if stub:
         dev = True  # stub implies dev
+    # --ssl-certfile implies manual TLS mode when tls_mode is still default
+    if tls_mode == "off" and ssl_certfile:
+        tls_mode = "manual"
     if ctx.invoked_subcommand is None:
         _run_foreground(
-            host, port, apps_dir, reload, dev, stub=stub, no_browser=no_browser
+            host,
+            port,
+            apps_dir,
+            reload,
+            dev,
+            stub=stub,
+            no_browser=no_browser,
+            tls_mode=tls_mode,
+            ssl_certfile=ssl_certfile,
+            ssl_keyfile=ssl_keyfile,
         )
 
 

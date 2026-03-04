@@ -66,6 +66,28 @@ def main() -> None:
     is_flag=True,
     help="Stub mode: serve UI with canned data for fast iteration (implies --dev)",
 )
+@click.option(
+    "--tls",
+    "tls_mode",
+    type=click.Choice(["auto", "off", "manual"], case_sensitive=False),
+    default="off",
+    help="TLS mode: auto (self-signed), off (plain HTTP), manual (provide certs)",
+)
+@click.option(
+    "--ssl-certfile",
+    default="",
+    help="Path to SSL certificate file (implies --tls manual)",
+)
+@click.option(
+    "--ssl-keyfile",
+    default="",
+    help="Path to SSL private key file",
+)
+@click.option(
+    "--no-auth",
+    is_flag=True,
+    help="Disable authentication",
+)
 def serve_cmd(
     host: str,
     port: int,
@@ -73,13 +95,30 @@ def serve_cmd(
     reload: bool,
     dev: bool,
     stub: bool,
+    tls_mode: str,
+    ssl_certfile: str,
+    ssl_keyfile: str,
+    no_auth: bool,
 ) -> None:
     """Start the experience server."""
     from .server.cli import _run_foreground
 
     if stub:
         dev = True
-    _run_foreground(host, port, apps_dir, reload, dev, stub=stub)
+    # --ssl-certfile implies manual TLS mode when tls_mode is still default
+    if tls_mode == "off" and ssl_certfile:
+        tls_mode = "manual"
+    _run_foreground(
+        host,
+        port,
+        apps_dir,
+        reload,
+        dev,
+        stub=stub,
+        tls_mode=tls_mode,
+        ssl_certfile=ssl_certfile,
+        ssl_keyfile=ssl_keyfile,
+    )
 
 
 # -- Backup commands -----------------------------------------------------
