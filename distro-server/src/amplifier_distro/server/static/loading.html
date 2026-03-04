@@ -5,9 +5,41 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>amplifier</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <script src="/static/theme-init.js"></script>
-  <link rel="stylesheet" href="/static/amplifier-theme.css">
+  <script>
+    // Inline dark-mode detection (from theme-init.js) so this page
+    // has zero external dependencies and renders in a single request.
+    (function() {
+      try {
+        var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (prefersDark) {
+          document.documentElement.dataset.theme = 'dark';
+          document.documentElement.style.backgroundColor = '#171717';
+        } else {
+          document.documentElement.style.backgroundColor = '#FDFCFA';
+        }
+      } catch(e) {}
+    })();
+  </script>
+  <!--
+    amplifier-theme.css is intentionally NOT loaded here.
+    During startup, the bundle preflight can block the event loop
+    for 30+ seconds, preventing the server from serving font files
+    or responding to polls.  This page uses inline styles with
+    system fonts and hardcoded colors so it renders immediately
+    from a single HTTP response — no sub-resource fetches required.
+  -->
   <style>
+    :root {
+      --loading-canvas: #FDFCFA;
+      --loading-signal: #5B4DE3;
+      --loading-fog: #7A7A7A;
+    }
+    [data-theme="dark"] {
+      --loading-canvas: #171717;
+      --loading-signal: #7B6FF0;
+      --loading-fog: #737373;
+    }
+
     body {
       margin: 0;
       display: flex;
@@ -15,16 +47,16 @@
       align-items: center;
       justify-content: center;
       min-height: 100vh;
-      background: var(--canvas);
+      background: var(--loading-canvas);
       gap: 32px;
       overflow: hidden;
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
     }
 
     .wordmark-loading {
-      font-family: var(--font-heading);
       font-weight: 700;
       font-size: clamp(2rem, 6vw, 3rem);
-      color: var(--signal);
+      color: var(--loading-signal);
       letter-spacing: -0.03em;
       text-transform: lowercase;
       display: flex;
@@ -35,7 +67,7 @@
       display: inline-block;
       opacity: 0;
       transform: translateY(16px);
-      animation: letterIn var(--duration-normal, 400ms) var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1)) forwards;
+      animation: letterIn 400ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
     }
 
     .wordmark-loading .dots {
@@ -45,7 +77,7 @@
 
     .wordmark-loading .dots .dot {
       opacity: 0;
-      animation: dotPulse 1.5s var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1)) infinite;
+      animation: dotPulse 1.5s cubic-bezier(0.22, 1, 0.36, 1) infinite;
     }
 
     .wordmark-loading .dots .dot:nth-child(1) { animation-delay: 0.9s; }
@@ -53,15 +85,13 @@
     .wordmark-loading .dots .dot:nth-child(3) { animation-delay: 1.2s; }
 
     .status-text {
-      font-family: var(--font-body);
       font-size: 14px;
-      color: var(--ink-fog);
-      transition: opacity var(--duration-fast, 200ms) var(--ease-out);
+      color: var(--loading-fog);
       text-align: center;
     }
 
     .status-text a {
-      color: var(--signal);
+      color: var(--loading-signal);
       text-decoration: none;
     }
 
@@ -70,19 +100,13 @@
     }
 
     @keyframes letterIn {
-      from {
-        opacity: 0;
-        transform: translateY(16px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
     }
 
     @keyframes dotPulse {
       0%, 20% { opacity: 0; }
-      40% { opacity: 1; }
+      40%     { opacity: 1; }
       60%, 100% { opacity: 0; }
     }
 
@@ -90,7 +114,7 @@
       .wordmark-loading .letter {
         opacity: 1;
         transform: none;
-        animation: fadeIn 0.5s ease forwards;
+        animation: none;
       }
       .wordmark-loading .dots .dot {
         animation: dotPulse 2s ease infinite;
@@ -131,23 +155,31 @@
       }
       container.appendChild(dots);
 
-      // Polling logic
+      // Polling with per-request timeout to handle blocked event loop.
+      // During preflight, the server's event loop may be blocked so
+      // fetch() hangs indefinitely.  AbortController caps each attempt
+      // at 3 seconds so we keep retrying instead of waiting forever.
       var statusEl = document.getElementById('status');
       var startTime = Date.now();
-      var timeoutMs = 30000;
-      var pollInterval = 1000;
+      var timeoutMs = 60000;   // 60s overall (preflight can take 30s+)
+      var pollInterval = 1000; // 1s between polls
+      var fetchTimeout = 3000; // 3s per fetch before aborting
       var redirecting = false;
 
       function poll() {
         if (redirecting) return;
 
-        fetch('/api/ready')
-          .then(function(resp) { return resp.json(); })
+        var controller = new AbortController();
+        var tid = setTimeout(function() { controller.abort(); }, fetchTimeout);
+
+        fetch('/api/ready', { signal: controller.signal })
+          .then(function(resp) { clearTimeout(tid); return resp.json(); })
           .then(function(data) {
             if (redirecting) return;
             if (data.ready) {
               redirecting = true;
               statusEl.textContent = 'ready';
+              // Brief pause so user sees "ready" before redirect
               setTimeout(function() {
                 if (data.phase === 'unconfigured') {
                   window.location.href = '/apps/install-wizard/';
@@ -156,12 +188,12 @@
                 }
               }, 400);
             } else {
-              statusEl.textContent = 'starting up...';
               scheduleNext();
             }
           })
           .catch(function() {
-            // Server not responding yet — keep trying
+            // Fetch timed out or server not responding — keep trying
+            clearTimeout(tid);
             scheduleNext();
           });
       }
