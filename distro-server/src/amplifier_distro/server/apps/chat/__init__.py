@@ -141,14 +141,14 @@ async def index() -> HTMLResponse:
     html_file = _static_dir / "index.html"
     if html_file.exists():
         html_content = html_file.read_text(encoding="utf-8")
-        
+
         # Inject workspace_root from settings to avoid race condition on initial session
         settings = load_distro_settings()
         workspace_root = settings.workspace_root or "~"
-        
+
         # Inject as a script tag that runs before any React code
-        injection = f'<script>window.__AMPLIFIER_WORKSPACE_ROOT = {json.dumps(workspace_root)};</script>'
-        
+        injection = f"<script>window.__AMPLIFIER_WORKSPACE_ROOT = {json.dumps(workspace_root)};</script>"
+
         # Insert after <head> tag or at start of <body>
         if "<head>" in html_content:
             html_content = html_content.replace("<head>", f"<head>\n{injection}", 1)
@@ -157,9 +157,9 @@ async def index() -> HTMLResponse:
         else:
             # Fallback: prepend to content
             html_content = injection + "\n" + html_content
-        
+
         return HTMLResponse(content=html_content)
-    
+
     return HTMLResponse(
         content=(
             "<html><body>"
@@ -222,8 +222,10 @@ async def list_session_history(
     limit: int = Query(default=200, ge=1, le=1000),
 ) -> dict:
     """Return lightweight metadata for all sessions discovered on disk."""
-    sessions = await asyncio.to_thread(scan_sessions)
     pinned_ids = await asyncio.to_thread(load_pins)
+    sessions = await asyncio.to_thread(
+        scan_sessions, limit=limit, pinned_ids=pinned_ids
+    )
     sessions = [
         row
         for row in sessions

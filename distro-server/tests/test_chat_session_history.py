@@ -34,9 +34,8 @@ def tmp_home(tmp_path, monkeypatch):
 @pytest.fixture
 def chat_client(tmp_path) -> TestClient:
     """TestClient with _AMPLIFIER_HOME_OVERRIDE pointed at tmp_path."""
-    import amplifier_distro.server.apps.chat.session_history as sh_mod
-
     import amplifier_distro.server.apps.chat.pin_storage as pin_mod
+    import amplifier_distro.server.apps.chat.session_history as sh_mod
 
     sh_mod._AMPLIFIER_HOME_OVERRIDE = str(tmp_path)
     pin_mod._AMPLIFIER_HOME_OVERRIDE = str(tmp_path)
@@ -57,8 +56,15 @@ def _make_session(
     project_dir_name: str,
     session_id: str,
     lines: list[dict] | None = None,
+    *,
+    metadata: dict | None = None,
 ) -> Path:
-    """Helper: create a fake session directory with optional transcript.jsonl."""
+    """Helper: create a fake session directory with optional transcript.jsonl.
+
+    When *lines* are provided and *metadata* is not, a ``metadata.json``
+    with ``turn_count`` (count of user-role lines) is written automatically
+    to match what MetadataSaveHook does in production.
+    """
     session_dir = tmp_home / "projects" / project_dir_name / "sessions" / session_id
     session_dir.mkdir(parents=True)
     if lines is not None:
@@ -66,6 +72,16 @@ def _make_session(
         transcript.write_text(
             "\n".join(json.dumps(line) for line in lines),
             encoding="utf-8",
+        )
+    # Write metadata.json — either explicit or auto-derived from lines
+    meta = metadata if metadata is not None else {}
+    if lines is not None and "turn_count" not in meta:
+        meta["turn_count"] = sum(
+            1 for line in lines if isinstance(line, dict) and line.get("role") == "user"
+        )
+    if meta:
+        (session_dir / "metadata.json").write_text(
+            json.dumps(meta, indent=2), encoding="utf-8"
         )
     return session_dir
 
@@ -99,7 +115,8 @@ class TestScanSessions:
         s = result[0]
         assert s["session_id"] == "abc-123"
         assert s["cwd"] == "/Users/test"
-        assert s["message_count"] == 2
+        # message_count comes from metadata.json turn_count (user messages only)
+        assert s["message_count"] == 1
         assert s["last_user_message"] == "hello there"
         assert s["last_updated"] is not None
         from datetime import datetime
@@ -234,7 +251,7 @@ class TestScanSessions:
         assert result == []
 
     def test_skips_non_role_lines_in_message_count(self, tmp_home):
-        """Lines without a 'role' key are not counted as messages."""
+        """message_count reflects turn_count from metadata.json (user turns only)."""
         from amplifier_distro.server.apps.chat.session_history import scan_sessions
 
         _make_session(
@@ -250,7 +267,8 @@ class TestScanSessions:
 
         result = scan_sessions()
 
-        assert result[0]["message_count"] == 2
+        # turn_count counts user messages only (matching MetadataSaveHook)
+        assert result[0]["message_count"] == 1
 
     def test_last_user_message_from_list_content_block(self, tmp_home):
         """User messages with list content extract the first text block."""
@@ -424,7 +442,8 @@ class TestSessionHistoryEndpoint:
         s = sessions[0]
         assert s["session_id"] == "endpoint-sess-1"
         assert s["cwd"] == "/Users/test"
-        assert s["message_count"] == 2
+        # message_count comes from metadata.json turn_count (user messages only)
+        assert s["message_count"] == 1
         assert s["last_user_message"] == "what time is it"
         assert "last_updated" in s
 
@@ -484,20 +503,34 @@ class TestPinEndpoints:
         resp = chat_client.delete("/apps/chat/api/sessions/nonexistent/pin")
         assert resp.status_code == 200
 
-    def test_history_includes_pinned_true(self, chat_client: TestClient, tmp_path: Path) -> None:
-        _make_session(tmp_path, "-Users-test-project", "session-xyz", [
-            {"role": "user", "content": "hello"},
-        ])
+    def test_history_includes_pinned_true(
+        self, chat_client: TestClient, tmp_path: Path
+    ) -> None:
+        _make_session(
+            tmp_path,
+            "-Users-test-project",
+            "session-xyz",
+            [
+                {"role": "user", "content": "hello"},
+            ],
+        )
         chat_client.post("/apps/chat/api/sessions/session-xyz/pin")
         resp = chat_client.get("/apps/chat/api/sessions/history")
         sessions = resp.json()["sessions"]
         pinned_session = next(s for s in sessions if s["session_id"] == "session-xyz")
         assert pinned_session["pinned"] is True
 
-    def test_history_unpinned_has_pinned_false(self, chat_client: TestClient, tmp_path: Path) -> None:
-        _make_session(tmp_path, "-Users-test-project", "session-xyz", [
-            {"role": "user", "content": "hello"},
-        ])
+    def test_history_unpinned_has_pinned_false(
+        self, chat_client: TestClient, tmp_path: Path
+    ) -> None:
+        _make_session(
+            tmp_path,
+            "-Users-test-project",
+            "session-xyz",
+            [
+                {"role": "user", "content": "hello"},
+            ],
+        )
         resp = chat_client.get("/apps/chat/api/sessions/history")
         sessions = resp.json()["sessions"]
         session = next(s for s in sessions if s["session_id"] == "session-xyz")

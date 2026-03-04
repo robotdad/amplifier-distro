@@ -5,15 +5,15 @@ Schema (one dict per session in scan_sessions() output):
     cwd: str                    — working directory decoded from project dir name
     parent_session_id: str|None — parent/root session id for spawned sessions
     spawn_agent: str|None       — spawned agent name from metadata.json when present
-    message_count: int          — number of transcript lines with a 'role' key
+    message_count: int          — turn_count from metadata.json (user message count)
     last_user_message: str|None — last user message text, truncated to 120 chars
     last_updated: str           — ISO-format mtime of transcript.jsonl (or session dir)
     revision: str               — mtime_ns:size signature for stale-change detection
 
-Performance note: scan_sessions() reads transcript.jsonl for every session.
-Large transcripts (>10k lines) are scanned completely. This is acceptable
-for typical session counts (<200) but should be profiled if latency becomes
-an issue. Future optimization: seek from end of file for last_user_message.
+Performance: message_count is read from metadata.json (written by
+MetadataSaveHook on each orchestrator:complete).  last_user_message is
+extracted by seeking to the last 8 KB of transcript.jsonl rather than
+scanning every line.  Session reads are parallelised across threads.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -92,6 +93,45 @@ def _decode_cwd(project_dir_name: str) -> str:
     return "/" + "/".join(parts)
 
 
+_TAIL_BYTES = 8192  # 8 KB — covers ~15-40 transcript lines from the end
+
+
+def _read_last_user_message(transcript_path: Path) -> str | None:
+    """Read the last user message by seeking to the tail of the transcript.
+
+    Reads only the final ``_TAIL_BYTES`` bytes of the file and scans
+    backwards for the most recent ``role: "user"`` entry.  Returns
+    ``None`` if no user message is found in the tail or on any I/O error.
+    """
+    try:
+        size = transcript_path.stat().st_size
+        if size == 0:
+            return None
+        with transcript_path.open("rb") as f:
+            f.seek(max(0, size - _TAIL_BYTES))
+            chunk = f.read().decode("utf-8", errors="replace")
+        for line in reversed(chunk.splitlines()):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(entry, dict) or entry.get("role") != "user":
+                continue
+            content = entry.get("content", "")
+            if isinstance(content, str):
+                return content[:120]
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        return (block.get("text") or "")[:120]
+        return None
+    except OSError:
+        return None
+
+
 def _read_session_meta(session_dir: Path) -> dict[str, Any]:
     """Extract lightweight metadata from a single session directory."""
     # Try to read CWD from session-info.json (written by Amplifier framework)
@@ -115,6 +155,7 @@ def _read_session_meta(session_dir: Path) -> dict[str, Any]:
     spawn_agent: str | None = None
     session_name: str | None = None
     session_description: str | None = None
+    message_count = 0
     metadata_path = session_dir / METADATA_FILENAME
     try:
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
@@ -135,46 +176,30 @@ def _read_session_meta(session_dir: Path) -> dict[str, Any]:
             raw_description = metadata.get("description")
             if isinstance(raw_description, str) and raw_description:
                 session_description = raw_description
+            # turn_count is written by MetadataSaveHook on each
+            # orchestrator:complete — avoids scanning the transcript.
+            raw_turn_count = metadata.get("turn_count")
+            if isinstance(raw_turn_count, int) and raw_turn_count >= 0:
+                message_count = raw_turn_count
     except (OSError, json.JSONDecodeError):
         pass
 
     transcript_path = session_dir / TRANSCRIPT_FILENAME
-
-    message_count = 0
     last_user_message: str | None = None
 
     last_updated, revision = _session_revision_signature(session_dir)
 
     if transcript_path.exists():
-        try:
-            with transcript_path.open(encoding="utf-8") as f:
-                for raw_line in f:
-                    line = raw_line.strip()
-                    if not line:
-                        continue
-                    try:
-                        entry = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if not isinstance(entry, dict) or not entry.get("role"):
-                        continue
-                    message_count += 1
-                    if entry["role"] == "user":
-                        content = entry.get("content", "")
-                        if isinstance(content, str):
-                            last_user_message = content[:120]
-                        elif isinstance(content, list):
-                            for block in content:
-                                if (
-                                    isinstance(block, dict)
-                                    and block.get("type") == "text"
-                                ):
-                                    last_user_message = (block.get("text") or "")[:120]
-                                    break
-        except OSError:
-            logger.warning(
-                "Could not read transcript at %s", transcript_path, exc_info=True
-            )
+        last_user_message = _read_last_user_message(transcript_path)
+        # Fallback for old sessions without turn_count in metadata:
+        # if transcript is non-empty, ensure message_count >= 1 so the
+        # session passes the frontend's empty-session filter.
+        if message_count == 0:
+            try:
+                if transcript_path.stat().st_size > 0:
+                    message_count = 1
+            except OSError:
+                pass
 
     return {
         "session_id": session_dir.name,
@@ -269,29 +294,84 @@ def _iter_session_dirs(projects_path: Path) -> list[Path]:
     return session_dirs
 
 
-def scan_sessions(amplifier_home: str | None = None) -> list[dict[str, Any]]:
+_SCAN_WORKERS = 8  # Thread pool size for parallel session reads (I/O-bound)
+
+
+def _stat_mtime(session_dir: Path) -> float:
+    """Return mtime of transcript (or session dir) for sorting.  0.0 on error."""
+    transcript = session_dir / TRANSCRIPT_FILENAME
+    target = transcript if transcript.exists() else session_dir
+    try:
+        return target.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def scan_sessions(
+    amplifier_home: str | None = None,
+    *,
+    limit: int = 0,
+    pinned_ids: set[str] | None = None,
+) -> list[dict[str, Any]]:
     """Scan ~/.amplifier/projects/ and return lightweight metadata for all sessions.
 
     Returns a list sorted newest-first by last_updated.
     Never raises — malformed sessions are included with degraded metadata.
+
+    When *limit* > 0, only the newest *limit* session directories (plus any
+    whose session_id appears in *pinned_ids*) are fully read.  The remaining
+    directories are skipped, avoiding expensive metadata/transcript I/O for
+    sessions that would be sliced away by the caller anyway.
+
+    Session directories are read in parallel using a thread pool since each
+    read is I/O-bound (stat + small JSON file reads + transcript tail seek).
     """
     home = amplifier_home or _get_amplifier_home()
     projects_path = Path(home).expanduser() / PROJECTS_DIR
+    session_dirs = _iter_session_dirs(projects_path)
 
-    results: list[dict[str, Any]] = []
-    for session_dir in _iter_session_dirs(projects_path):
+    if not session_dirs:
+        return []
+
+    # When a limit is set, stat all dirs for mtime (very cheap — ~0.03s for
+    # 5000 dirs) then only fully read the top N + any pinned sessions.
+    if limit > 0:
+        pinned = pinned_ids or set()
+        scored = [(sd, _stat_mtime(sd)) for sd in session_dirs]
+        scored.sort(key=lambda x: x[1], reverse=True)
+
+        selected: list[Path] = []
+        selected_ids: set[str] = set()
+        for sd, _mtime in scored:
+            if len(selected) < limit or sd.name in pinned:
+                selected.append(sd)
+                selected_ids.add(sd.name)
+
+        # Include any pinned sessions that fell outside the top N
+        for sd, _mtime in scored:
+            if sd.name in pinned and sd.name not in selected_ids:
+                selected.append(sd)
+                selected_ids.add(sd.name)
+
+        session_dirs = selected
+
+    def _process(session_dir: Path) -> dict[str, Any] | None:
         try:
             meta = _read_session_meta(session_dir)
             project_dir_name = session_dir.parent.parent.name
             # Prefer verbatim CWD from session-info.json; fall back to decoded name
             meta["cwd"] = meta.pop("cwd_from_info") or _decode_cwd(project_dir_name)
-            results.append(meta)
+            return meta
         except Exception:  # noqa: BLE001
             logger.warning(
                 "Skipping session %s due to unexpected error",
                 session_dir,
                 exc_info=True,
             )
+            return None
+
+    with ThreadPoolExecutor(max_workers=_SCAN_WORKERS) as pool:
+        results = [r for r in pool.map(_process, session_dirs) if r is not None]
 
     results.sort(key=lambda s: s["last_updated"], reverse=True)
     return results
