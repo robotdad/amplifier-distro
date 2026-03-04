@@ -22,6 +22,8 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_SESSION_TIMEOUT: int = 30 * 24 * 60 * 60  # 30 days in seconds
+
 
 def authenticate_pam(username: str, password: str) -> bool:
     """Authenticate *username* / *password* via Linux PAM.
@@ -93,7 +95,9 @@ def create_session_token(username: str, secret: str) -> str:
     return signer.sign(username).decode()
 
 
-def verify_session_token(token: str, secret: str, max_age: int = 2592000) -> str | None:
+def verify_session_token(
+    token: str, secret: str, max_age: int = DEFAULT_SESSION_TIMEOUT
+) -> str | None:
     """Verify *token* and return the username, or ``None`` on failure.
 
     *max_age* is the maximum token age in seconds (default 30 days).

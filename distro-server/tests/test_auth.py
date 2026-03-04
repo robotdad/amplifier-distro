@@ -8,6 +8,7 @@ import pytest
 from fastapi import FastAPI
 
 from amplifier_distro.server.auth import (
+    DEFAULT_SESSION_TIMEOUT,
     authenticate_pam,
     create_session_token,
     get_or_create_secret,
@@ -202,7 +203,9 @@ TEST_SECRET = "test-secret-for-auth-routes"  # noqa: S105
 def auth_app():
     """Create a minimal FastAPI app with auth routes for testing."""
     app = FastAPI()
-    router = create_auth_router(secret=TEST_SECRET, session_timeout=2592000)
+    router = create_auth_router(
+        secret=TEST_SECRET, session_timeout=DEFAULT_SESSION_TIMEOUT
+    )
     app.include_router(router)
     return app
 
@@ -219,11 +222,12 @@ class TestLoginRoute:
     """Tests for GET /login and POST /login."""
 
     async def test_get_login_serves_html(self, auth_client):
-        """GET /login returns an HTML login page."""
+        """GET /login returns an HTML login page with a username field."""
         resp = await auth_client.get("/login")
 
         assert resp.status_code == 200
         assert "text/html" in resp.headers["content-type"]
+        assert "username" in resp.text
 
     @patch("amplifier_distro.server.auth_routes.authenticate_pam", return_value=True)
     async def test_successful_login_sets_cookie_and_redirects(
@@ -313,6 +317,8 @@ class TestLogoutRoute:
         )
 
         assert resp.status_code == 303
-        # The cookie should be cleared (set to empty or max_age=0)
+        # The cookie should be cleared via max-age=0 or an expired date
         set_cookie = resp.headers.get("set-cookie", "")
         assert "amplifier_session" in set_cookie
+        cookie_lower = set_cookie.lower()
+        assert "max-age=0" in cookie_lower or "01 jan 1970" in cookie_lower

@@ -12,6 +12,7 @@ from fastapi import APIRouter, Cookie, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from amplifier_distro.server.auth import (
+    DEFAULT_SESSION_TIMEOUT,
     authenticate_pam,
     create_session_token,
     verify_session_token,
@@ -41,7 +42,7 @@ def _login_html() -> str:
 
 def create_auth_router(
     secret: str,
-    session_timeout: int = 2592000,
+    session_timeout: int = DEFAULT_SESSION_TIMEOUT,
 ) -> APIRouter:
     """Create an APIRouter with login/logout/auth-me routes.
 
