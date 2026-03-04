@@ -41,7 +41,7 @@ fi
 mkdir -p "$SYSTEMD_USER_DIR"
 
 # Generate service file with correct ExecStart path
-sed "s|ExecStart=.*|ExecStart=$AMP_SERVER serve --host 0.0.0.0 --port 8400|" \
+sed "s|ExecStart=.*|ExecStart=$AMP_SERVER serve --port 8400|" \
     "$SERVICE_TEMPLATE" > "$SYSTEMD_USER_DIR/amplifier-distro.service"
 
 echo "Installed service file to $SYSTEMD_USER_DIR/amplifier-distro.service"

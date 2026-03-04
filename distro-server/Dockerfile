@@ -54,4 +54,4 @@ HEALTHCHECK --interval=10s --timeout=5s --retries=3 --start-period=15s \
     CMD curl -sf http://localhost:8400/api/health || exit 1
 
 ENTRYPOINT ["docker-entrypoint.sh"]
-CMD ["amp-distro", "serve", "--host", "0.0.0.0", "--port", "8400"]
+CMD ["amp-distro", "serve", "--port", "8400"]
