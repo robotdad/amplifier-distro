@@ -9,9 +9,6 @@
 #   Dockerfile:
 #     RUN bash scripts/install.sh
 #
-#   curl | bash (standalone):
-#     curl -fsSL https://raw.githubusercontent.com/ramparte/amplifier-distro/main/scripts/install.sh | bash
-#
 #   Local developer:
 #     git clone ... && cd amplifier-distro && bash scripts/install.sh
 #
