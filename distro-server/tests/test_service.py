@@ -63,10 +63,12 @@ class TestSystemdServerUnit:
     def _generate(
         self,
         distro_bin: str = "/usr/local/bin/amp-distro",
+        host: str = "0.0.0.0",
+        port: int = conventions.SERVER_DEFAULT_PORT,
     ) -> str:
         from amplifier_distro.service import _generate_systemd_server_unit
 
-        return _generate_systemd_server_unit(distro_bin)
+        return _generate_systemd_server_unit(distro_bin, host, port)
 
     def _parse(self, content: str) -> configparser.ConfigParser:
         parser = configparser.ConfigParser()
@@ -121,10 +123,12 @@ class TestSystemdWatchdogUnit:
     def _generate(
         self,
         distro_bin: str = "/usr/local/bin/amp-distro",
+        host: str = "0.0.0.0",
+        port: int = conventions.SERVER_DEFAULT_PORT,
     ) -> str:
         from amplifier_distro.service import _generate_systemd_watchdog_unit
 
-        return _generate_systemd_watchdog_unit(distro_bin)
+        return _generate_systemd_watchdog_unit(distro_bin, host, port)
 
     def _parse(self, content: str) -> configparser.ConfigParser:
         parser = configparser.ConfigParser()
@@ -172,10 +176,12 @@ class TestLaunchdServerPlist:
     def _generate(
         self,
         distro_bin: str = "/usr/local/bin/amp-distro",
+        host: str = "0.0.0.0",
+        port: int = conventions.SERVER_DEFAULT_PORT,
     ) -> str:
         from amplifier_distro.service import _generate_launchd_server_plist
 
-        return _generate_launchd_server_plist(distro_bin)
+        return _generate_launchd_server_plist(distro_bin, host, port)
 
     def test_valid_xml(self) -> None:
         """Generated plist must parse as valid XML."""
@@ -211,12 +217,17 @@ class TestLaunchdServerPlist:
 class TestLaunchdWatchdogPlist:
     """Verify launchd watchdog plist generation."""
 
-    def _generate(self, distro_bin: str = "/usr/local/bin/amp-distro") -> str:
+    def _generate(
+        self,
+        distro_bin: str = "/usr/local/bin/amp-distro",
+        host: str = "0.0.0.0",
+        port: int = conventions.SERVER_DEFAULT_PORT,
+    ) -> str:
         from amplifier_distro.service import (
             _generate_launchd_watchdog_plist,
         )
 
-        return _generate_launchd_watchdog_plist(distro_bin)
+        return _generate_launchd_watchdog_plist(distro_bin, host, port)
 
     def test_valid_xml(self) -> None:
         ET.fromstring(self._generate())  # noqa: S314
@@ -241,7 +252,9 @@ class TestLaunchdWatchdogPlist:
         assert "/my/custom/amp-distro" in content
 
     def test_watchdog_plist_contains_supervised_flag(self) -> None:
-        """Launchd watchdog plist must pass --supervised for macOS supervisor detection."""
+        """Launchd watchdog plist must pass --supervised for macOS supervisor
+        detection.
+        """
         content = self._generate()
         assert "<string>--supervised</string>" in content
 
@@ -249,7 +262,9 @@ class TestLaunchdWatchdogPlist:
         """Server plist must NOT have --supervised — only watchdog is supervised."""
         from amplifier_distro.service import _generate_launchd_server_plist
 
-        content = _generate_launchd_server_plist("/usr/local/bin/amp-distro")
+        content = _generate_launchd_server_plist(
+            "/usr/local/bin/amp-distro", "0.0.0.0", conventions.SERVER_DEFAULT_PORT
+        )
         assert "--supervised" not in content
 
 
@@ -279,7 +294,9 @@ class TestInstallDispatch:
             success=True, platform="linux", message="OK"
         )
         install_service(include_watchdog=True)
-        mock_install.assert_called_once_with(True)
+        mock_install.assert_called_once_with(
+            True, host="0.0.0.0", port=conventions.SERVER_DEFAULT_PORT
+        )
 
     @patch("amplifier_distro.service.detect_platform", return_value="macos")
     @patch("amplifier_distro.service._install_launchd")
@@ -290,7 +307,9 @@ class TestInstallDispatch:
             success=True, platform="macos", message="OK"
         )
         install_service(include_watchdog=False)
-        mock_install.assert_called_once_with(False)
+        mock_install.assert_called_once_with(
+            False, host="0.0.0.0", port=conventions.SERVER_DEFAULT_PORT
+        )
 
 
 class TestUninstallDispatch:
@@ -354,7 +373,11 @@ class TestInstallSystemd:
             "amplifier_distro.service._systemd_dir",
             return_value=tmp_path,
         ):
-            result = _install_systemd(include_watchdog=True)
+            result = _install_systemd(
+                include_watchdog=True,
+                host="0.0.0.0",
+                port=conventions.SERVER_DEFAULT_PORT,
+            )
 
         assert result.success is True
         # Check files were created
@@ -367,7 +390,9 @@ class TestInstallSystemd:
     def test_install_fails_without_binary(self, _mock_bin: MagicMock) -> None:
         from amplifier_distro.service import _install_systemd
 
-        result = _install_systemd(include_watchdog=True)
+        result = _install_systemd(
+            include_watchdog=True, host="0.0.0.0", port=conventions.SERVER_DEFAULT_PORT
+        )
         assert result.success is False
         assert "amp-distro" in result.message
 
@@ -388,7 +413,11 @@ class TestInstallSystemd:
             "amplifier_distro.service._systemd_dir",
             return_value=tmp_path,
         ):
-            result = _install_systemd(include_watchdog=False)
+            result = _install_systemd(
+                include_watchdog=False,
+                host="0.0.0.0",
+                port=conventions.SERVER_DEFAULT_PORT,
+            )
 
         assert result.success is True
         watchdog_file = tmp_path / f"{conventions.SERVICE_NAME}-watchdog.service"
@@ -443,7 +472,9 @@ class TestServiceCli:
         runner = CliRunner()
         runner.invoke(main, ["service", "install", "--no-watchdog"])
 
-        mock_install.assert_called_once_with(include_watchdog=False)
+        mock_install.assert_called_once_with(
+            include_watchdog=False, host="0.0.0.0", port=conventions.SERVER_DEFAULT_PORT
+        )
 
     @patch("amplifier_distro.service.uninstall_service")
     def test_uninstall_success(self, mock_uninstall: MagicMock) -> None:
