@@ -173,8 +173,10 @@ class TestGetOrCreateSecret:
         """Creates a session-secret.key file with a long-enough secret."""
         secret = get_or_create_secret(tmp_path)
 
+        secret_file = tmp_path / "session-secret.key"
         assert len(secret) > 16
-        assert (tmp_path / "session-secret.key").exists()
+        assert secret_file.exists()
+        assert secret_file.stat().st_mode & 0o777 == 0o600
 
     def test_reuses_existing_secret(self, tmp_path):
         """Returns the same secret on a second call (reads from file)."""

@@ -62,7 +62,7 @@ def is_auth_applicable(
 # Session token management
 # ---------------------------------------------------------------------------
 
-_SECRET_FILENAME = "session-secret.key"
+_SECRET_FILENAME = "session-secret.key"  # noqa: S105
 
 
 def get_or_create_secret(secret_dir: Path | None = None) -> str:
@@ -75,12 +75,12 @@ def get_or_create_secret(secret_dir: Path | None = None) -> str:
     if secret_dir is None:
         secret_dir = Path(DISTRO_HOME).expanduser()
 
-    secret_dir.mkdir(parents=True, exist_ok=True)
     secret_file = secret_dir / _SECRET_FILENAME
 
     if secret_file.exists():
         return secret_file.read_text().strip()
 
+    secret_dir.mkdir(parents=True, exist_ok=True)
     secret = secrets.token_hex(32)
     secret_file.write_text(secret)
     secret_file.chmod(0o600)
