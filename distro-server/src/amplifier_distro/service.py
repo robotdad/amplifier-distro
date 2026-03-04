@@ -69,22 +69,28 @@ def detect_platform() -> str:
 # ---------------------------------------------------------------------------
 
 
-def install_service(include_watchdog: bool = True) -> ServiceResult:
+def install_service(
+    include_watchdog: bool = True,
+    host: str = "0.0.0.0",
+    port: int = conventions.SERVER_DEFAULT_PORT,
+) -> ServiceResult:
     """Install platform service for auto-start on boot.
 
     Args:
         include_watchdog: If True (default), the boot service runs the
             watchdog which manages the server. If False, the boot service
             runs the server directly (systemd/launchd handle restarts).
+        host: Bind host address for the server and watchdog.
+        port: Bind port number for the server and watchdog.
 
     Returns:
         ServiceResult with success status and details.
     """
     plat = detect_platform()
     if plat == "linux":
-        return _install_systemd(include_watchdog)
+        return _install_systemd(include_watchdog, host=host, port=port)
     if plat == "macos":
-        return _install_launchd(include_watchdog)
+        return _install_launchd(include_watchdog, host=host, port=port)
     return ServiceResult(
         success=False,
         platform=plat,
@@ -206,17 +212,18 @@ def _systemd_watchdog_unit_path() -> Path:
     return _systemd_dir() / f"{conventions.SERVICE_NAME}-watchdog.service"
 
 
-def _generate_systemd_server_unit(distro_bin: str) -> str:
+def _generate_systemd_server_unit(distro_bin: str, host: str, port: int) -> str:
     """Generate the systemd unit file for the server.
 
     Args:
         distro_bin: Absolute path to the amp-distro binary.
+        host: Bind host address.
+        port: Bind port number.
 
     Returns:
         Complete systemd unit file content as a string.
     """
     path_env = os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")
-    port = conventions.SERVER_DEFAULT_PORT
     amplifier_home = Path(conventions.AMPLIFIER_HOME).expanduser()
     return dedent(f"""\
         [Unit]
@@ -225,12 +232,12 @@ def _generate_systemd_server_unit(distro_bin: str) -> str:
 
         [Service]
         Type=simple
-        ExecStart={distro_bin} serve --host 0.0.0.0 --port {port}
+        ExecStart={distro_bin} serve --host {host} --port {port}
         Restart=always
         # Note: Restart=always (not on-failure) is intentional. The watchdog triggers
         # restarts by exiting with code 1, which causes systemd to restart the watchdog
         # unit. On clean exits (e.g. SIGTERM from the watchdog supervisor path), systemd
-        # must also restart. systemctl stop still works — systemd sets an inhibit-restart
+        # must also restart. systemctl stop works — systemd sets an inhibit-restart
         # flag on admin stops that overrides this policy.
         RestartSec=5
         StartLimitIntervalSec=60
@@ -246,7 +253,7 @@ def _generate_systemd_server_unit(distro_bin: str) -> str:
     """)
 
 
-def _generate_systemd_watchdog_unit(distro_bin: str) -> str:
+def _generate_systemd_watchdog_unit(distro_bin: str, host: str, port: int) -> str:
     """Generate the systemd unit file for the watchdog.
 
     The watchdog unit uses ``Restart=always`` so it is always running.
@@ -255,12 +262,13 @@ def _generate_systemd_watchdog_unit(distro_bin: str) -> str:
 
     Args:
         distro_bin: Absolute path to the amp-distro binary.
+        host: Bind host address.
+        port: Bind port number.
 
     Returns:
         Complete systemd unit file content as a string.
     """
     path_env = os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")
-    port = conventions.SERVER_DEFAULT_PORT
     service_name = conventions.SERVICE_NAME
     amplifier_home = Path(conventions.AMPLIFIER_HOME).expanduser()
     return dedent(f"""\
@@ -271,7 +279,7 @@ def _generate_systemd_watchdog_unit(distro_bin: str) -> str:
 
         [Service]
         Type=simple
-        ExecStart={distro_bin} watchdog --host 0.0.0.0 --port {port}
+        ExecStart={distro_bin} watchdog --host {host} --port {port}
         Restart=always
         RestartSec=10
         StartLimitIntervalSec=300
@@ -287,7 +295,11 @@ def _generate_systemd_watchdog_unit(distro_bin: str) -> str:
     """)
 
 
-def _install_systemd(include_watchdog: bool) -> ServiceResult:
+def _install_systemd(
+    include_watchdog: bool,
+    host: str,
+    port: int,
+) -> ServiceResult:
     """Install systemd user services.
 
     Steps:
@@ -301,6 +313,8 @@ def _install_systemd(include_watchdog: bool) -> ServiceResult:
 
     Args:
         include_watchdog: Whether to also install the watchdog service.
+        host: Bind host address.
+        port: Bind port number.
 
     Returns:
         ServiceResult with outcome details.
@@ -325,13 +339,15 @@ def _install_systemd(include_watchdog: bool) -> ServiceResult:
 
     # Write server unit
     server_unit_path = _systemd_server_unit_path()
-    server_unit_path.write_text(_generate_systemd_server_unit(distro_bin))
+    server_unit_path.write_text(_generate_systemd_server_unit(distro_bin, host, port))
     details.append(f"Wrote {server_unit_path}")
 
     # Write watchdog unit
     if include_watchdog:
         watchdog_unit_path = _systemd_watchdog_unit_path()
-        watchdog_unit_path.write_text(_generate_systemd_watchdog_unit(distro_bin))
+        watchdog_unit_path.write_text(
+            _generate_systemd_watchdog_unit(distro_bin, host, port)
+        )
         details.append(f"Wrote {watchdog_unit_path}")
 
     # Reload systemd
@@ -505,7 +521,7 @@ def _launchd_watchdog_plist_path() -> Path:
     return _launchd_dir() / f"{conventions.LAUNCHD_LABEL}.watchdog.plist"
 
 
-def _generate_launchd_server_plist(distro_bin: str) -> str:
+def _generate_launchd_server_plist(distro_bin: str, host: str, port: int) -> str:
     """Generate a launchd plist for the server.
 
     The plist uses ``RunAtLoad`` for boot-time start and ``KeepAlive``
@@ -513,12 +529,13 @@ def _generate_launchd_server_plist(distro_bin: str) -> str:
 
     Args:
         distro_bin: Absolute path to the amp-distro binary.
+        host: Bind host address.
+        port: Bind port number.
 
     Returns:
         Complete plist XML content as a string.
     """
     label = conventions.LAUNCHD_LABEL
-    port = conventions.SERVER_DEFAULT_PORT
     home = str(Path.home())
     srv_dir = str(
         Path(conventions.AMPLIFIER_HOME).expanduser() / conventions.SERVER_DIR
@@ -537,7 +554,7 @@ def _generate_launchd_server_plist(distro_bin: str) -> str:
                 <string>{distro_bin}</string>
                 <string>serve</string>
                 <string>--host</string>
-                <string>0.0.0.0</string>
+                <string>{host}</string>
                 <string>--port</string>
                 <string>{port}</string>
             </array>
@@ -564,19 +581,20 @@ def _generate_launchd_server_plist(distro_bin: str) -> str:
     """)
 
 
-def _generate_launchd_watchdog_plist(distro_bin: str) -> str:
+def _generate_launchd_watchdog_plist(distro_bin: str, host: str, port: int) -> str:
     """Generate a launchd plist for the watchdog.
 
     Uses ``KeepAlive=true`` so the watchdog always restarts if it exits.
 
     Args:
         distro_bin: Absolute path to the amp-distro binary.
+        host: Bind host address.
+        port: Bind port number.
 
     Returns:
         Complete plist XML content as a string.
     """
     label = f"{conventions.LAUNCHD_LABEL}.watchdog"
-    port = conventions.SERVER_DEFAULT_PORT
     home = str(Path.home())
     srv_dir = str(
         Path(conventions.AMPLIFIER_HOME).expanduser() / conventions.SERVER_DIR
@@ -596,7 +614,7 @@ def _generate_launchd_watchdog_plist(distro_bin: str) -> str:
                 <string>watchdog</string>
                 <string>--supervised</string>
                 <string>--host</string>
-                <string>0.0.0.0</string>
+                <string>{host}</string>
                 <string>--port</string>
                 <string>{port}</string>
             </array>
@@ -620,7 +638,11 @@ def _generate_launchd_watchdog_plist(distro_bin: str) -> str:
     """)
 
 
-def _install_launchd(include_watchdog: bool) -> ServiceResult:
+def _install_launchd(
+    include_watchdog: bool,
+    host: str,
+    port: int,
+) -> ServiceResult:
     """Install launchd user agents.
 
     Steps:
@@ -632,6 +654,8 @@ def _install_launchd(include_watchdog: bool) -> ServiceResult:
 
     Args:
         include_watchdog: Whether to also install the watchdog agent.
+        host: Bind host address.
+        port: Bind port number.
 
     Returns:
         ServiceResult with outcome details.
@@ -656,7 +680,7 @@ def _install_launchd(include_watchdog: bool) -> ServiceResult:
 
     # Write and load server plist
     server_plist = _launchd_server_plist_path()
-    server_plist.write_text(_generate_launchd_server_plist(distro_bin))
+    server_plist.write_text(_generate_launchd_server_plist(distro_bin, host, port))
     details.append(f"Wrote {server_plist}")
 
     ok, output = _run_cmd(["launchctl", "load", "-w", str(server_plist)])
@@ -668,7 +692,9 @@ def _install_launchd(include_watchdog: bool) -> ServiceResult:
     # Write and load watchdog plist
     if include_watchdog:
         watchdog_plist = _launchd_watchdog_plist_path()
-        watchdog_plist.write_text(_generate_launchd_watchdog_plist(distro_bin))
+        watchdog_plist.write_text(
+            _generate_launchd_watchdog_plist(distro_bin, host, port)
+        )
         details.append(f"Wrote {watchdog_plist}")
 
         ok, output = _run_cmd(["launchctl", "load", "-w", str(watchdog_plist)])

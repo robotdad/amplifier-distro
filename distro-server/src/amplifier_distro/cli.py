@@ -230,11 +230,24 @@ def service_group() -> None:
     is_flag=True,
     help="Install server only, without the health watchdog.",
 )
-def service_install(no_watchdog: bool) -> None:
+@click.option(
+    "--host",
+    default="0.0.0.0",
+    help="Bind host (use 127.0.0.1 to restrict to localhost).",
+)
+@click.option(
+    "--port",
+    default=None,
+    type=int,
+    help="Bind port (default: 8400).",
+)
+def service_install(no_watchdog: bool, host: str, port: int | None) -> None:
     """Install the platform service for auto-start on boot."""
     from .service import install_service
 
-    result = install_service(include_watchdog=not no_watchdog)
+    if port is None:
+        port = conventions.SERVER_DEFAULT_PORT
+    result = install_service(include_watchdog=not no_watchdog, host=host, port=port)
     if result.success:
         click.echo(f"Service installed ({result.platform})")
         for detail in result.details:
