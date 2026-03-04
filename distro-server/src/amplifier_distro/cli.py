@@ -81,7 +81,7 @@ def main() -> None:
 @click.option(
     "--ssl-keyfile",
     default="",
-    help="Path to SSL private key file",
+    help="Path to SSL private key file (used with --ssl-certfile)",
 )
 @click.option(
     "--no-auth",
