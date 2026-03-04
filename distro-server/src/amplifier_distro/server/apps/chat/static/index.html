@@ -2740,6 +2740,7 @@
               ...s,
               sessionId: msg.session_id,
               cwd: msg.cwd || '~',
+              serverCwd: msg.cwd || s.serverCwd || null,
               bundle: msg.bundle,
               source: 'live',
               status: 'idle',
@@ -2853,6 +2854,9 @@
               ...s,
               sessionId: msg.session_id,
               cwd: msg.cwd || '~',
+              // Track the server's canonical CWD (may differ from what we
+              // sent if the server expanded ~ or resolved symlinks).
+              serverCwd: msg.cwd || s.serverCwd || null,
               bundle: msg.bundle,
               source: 'live',
               status: 'idle',
@@ -3160,6 +3164,31 @@
         }
 
         case 'command_result': {
+          // When the /cwd command succeeds, update session state with the
+          // new session_id and cwd so subsequent prompts go to the correct
+          // backend session.
+          if (msg.command === 'cwd' && msg.result && !msg.result.error) {
+            const newCwd = msg.result.cwd;
+            const newSid = msg.result.session_id;
+            if (isActiveStream) {
+              if (newSid) setSessionId(newSid);
+              if (newCwd) setCwd(newCwd);
+            }
+            if (ownerKey) {
+              setSessions(prev => {
+                const next = new Map(prev);
+                const s = next.get(ownerKey);
+                if (s) {
+                  const patch = {};
+                  if (newSid) patch.sessionId = newSid;
+                  if (newCwd) { patch.cwd = newCwd; patch.serverCwd = newCwd; }
+                  next.set(ownerKey, { ...s, ...patch });
+                }
+                return next;
+              });
+            }
+            break;  // Skip the system message for silent CWD updates
+          }
           const fmt = formatCommandResult(msg.command, msg.result);
           const item = {
             id: makeId(), type: 'text', role: 'system',
@@ -3225,7 +3254,7 @@
           if (!sessionKey) return prev;
           const next = new Map(prev);
           const s = next.get(sessionKey) || {};
-          next.set(sessionKey, { ...s, ws, cwd: s.cwd || requestedCwd });
+          next.set(sessionKey, { ...s, ws, cwd: s.cwd || requestedCwd, serverCwd: requestedCwd });
           return next;
         });
         ws.send(JSON.stringify({ type: 'create_session', cwd: requestedCwd, bundle: null }));
@@ -3645,6 +3674,22 @@
         return;
       }
 
+      // If the user edited the CWD on a draft session, reconcile with the
+      // server before sending anything.  The /cwd command is processed
+      // sequentially on the same WebSocket so the session will be recreated
+      // with the new directory before the prompt (or server-side command)
+      // that follows.  No optimistic update here — serverCwd is updated
+      // when the command_result arrives from the server.
+      const isDraft = activeSession
+        && activeSession.source !== 'history'
+        && (activeSession.turnCount || 0) === 0;
+      if (isDraft && activeSession.serverCwd != null) {
+        const currentCwd = (defaultCwdRef.current || '').trim() || '~';
+        if (currentCwd !== activeSession.serverCwd) {
+          activeWs.send(JSON.stringify({ type: 'command', name: 'cwd', args: [currentCwd] }));
+        }
+      }
+
       // Client-side slash commands
       if (content.startsWith('/')) {
         const parts = content.trim().split(/\s+/);
@@ -3822,7 +3867,7 @@
         setSessions(prev => {
           const next = new Map(prev);
           const cur = next.get(key) || {};
-          next.set(key, { ...cur, ws, status: 'idle' });
+          next.set(key, { ...cur, ws, status: 'idle', serverCwd: requestedCwd });
           return next;
         });
       };
@@ -4335,6 +4380,26 @@
       const normalized = (rawCwd || '').trim() || '~';
       defaultCwdRef.current = normalized;
       setDefaultCwd(normalized);
+
+      // For draft sessions, also update the displayed cwd and session data
+      // so the metadata view stays consistent if the draft editor hides.
+      // Server-side reconciliation is deferred to sendMessage() to avoid
+      // session churn from repeated edits.
+      const key = activeKeyRef.current;
+      if (!key) return;
+      const session = sessionsRef.current.get(key);
+      if (!session) return;
+      const isDraft = session.source !== 'history' && (session.turnCount || 0) === 0;
+      if (!isDraft) return;
+      if (normalized === (session.cwd || '~')) return;
+
+      setCwd(normalized);
+      setSessions(prev => {
+        const next = new Map(prev);
+        const s = next.get(key);
+        if (s) next.set(key, { ...s, cwd: normalized });
+        return next;
+      });
     }, []);
 
     const startPaneResize = useCallback((pane, e) => {
@@ -4675,6 +4740,10 @@
                         onInput=${e => {
                           defaultCwdRef.current = e.target.value;
                           setDefaultCwd(e.target.value);
+                          // Keep displayed cwd in sync so the metadata view
+                          // shows the edited value if the draft editor hides
+                          // (e.g. when executing becomes true on send).
+                          setCwd(e.target.value);
                         }}
                         onBlur=${e => applyDraftCwd(e.target.value)}
                       />

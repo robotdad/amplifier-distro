@@ -444,6 +444,8 @@ class ChatConnection:
                 return {"bundle": new_bundle, "session_id": info.session_id}
             case "cwd" if args:
                 new_cwd = args[0]
+                if "\x00" in new_cwd:
+                    return {"error": "Invalid working directory"}
                 if self._session_id:
                     self._cleanup_hook()
                     await self._backend.cancel_session(self._session_id, "graceful")
@@ -456,7 +458,7 @@ class ChatConnection:
                 self._session_id = info.session_id
                 self._translator.reset()
                 self._fetch_hook_unregister(info.session_id)
-                return {"cwd": new_cwd, "session_id": info.session_id}
+                return {"cwd": str(info.working_dir), "session_id": info.session_id}
             case "config":
                 return self._build_config_summary()
             case "tools":
