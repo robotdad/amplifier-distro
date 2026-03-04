@@ -1,7 +1,12 @@
-"""Tests for PAM authentication module and session token management."""
+"""Tests for PAM authentication module, session token management, and auth routes."""
 
 import logging
 from unittest.mock import MagicMock, patch
+
+import httpx
+import pytest
+from amplifier_distro.server.auth_routes import create_auth_router
+from fastapi import FastAPI
 
 from amplifier_distro.server.auth import (
     authenticate_pam,
@@ -184,3 +189,123 @@ class TestGetOrCreateSecret:
         second = get_or_create_secret(tmp_path)
 
         assert first == second
+
+
+# ---------------------------------------------------------------------------
+# Auth routes tests (httpx.AsyncClient + ASGITransport pattern)
+# ---------------------------------------------------------------------------
+
+TEST_SECRET = "test-secret-for-auth-routes"  # noqa: S105
+
+
+@pytest.fixture
+def auth_app():
+    """Create a minimal FastAPI app with auth routes for testing."""
+    app = FastAPI()
+    router = create_auth_router(secret=TEST_SECRET, session_timeout=2592000)
+    app.include_router(router)
+    return app
+
+
+@pytest.fixture
+async def auth_client(auth_app):
+    """Async httpx client wired to the auth FastAPI app via ASGITransport."""
+    transport = httpx.ASGITransport(app=auth_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client
+
+
+class TestLoginRoute:
+    """Tests for GET /login and POST /login."""
+
+    async def test_get_login_serves_html(self, auth_client):
+        """GET /login returns an HTML login page."""
+        resp = await auth_client.get("/login")
+
+        assert resp.status_code == 200
+        assert "text/html" in resp.headers["content-type"]
+
+    @patch("amplifier_distro.server.auth_routes.authenticate_pam", return_value=True)
+    async def test_successful_login_sets_cookie_and_redirects(
+        self, mock_pam, auth_client
+    ):
+        """POST /login sets amplifier_session cookie and returns 303."""
+        resp = await auth_client.post(
+            "/login",
+            data={"username": "alice", "password": "correct"},
+            follow_redirects=False,
+        )
+
+        assert resp.status_code == 303
+        assert "amplifier_session" in resp.cookies
+        mock_pam.assert_called_once_with("alice", "correct")
+
+    @patch("amplifier_distro.server.auth_routes.authenticate_pam", return_value=False)
+    async def test_failed_login_returns_401(self, mock_pam, auth_client):
+        """POST /login with bad credentials returns 401 JSON."""
+        resp = await auth_client.post(
+            "/login",
+            data={"username": "alice", "password": "wrong"},
+        )
+
+        assert resp.status_code == 401
+        body = resp.json()
+        assert "error" in body or "detail" in body
+
+
+class TestAuthMeRoute:
+    """Tests for GET /auth/me."""
+
+    @patch("amplifier_distro.server.auth_routes.authenticate_pam", return_value=True)
+    async def test_returns_username_with_valid_cookie(self, mock_pam, auth_client):
+        """GET /auth/me returns username JSON with valid cookie."""
+        # First login to get a cookie
+        login_resp = await auth_client.post(
+            "/login",
+            data={"username": "alice", "password": "correct"},
+            follow_redirects=False,
+        )
+        cookie_value = login_resp.cookies["amplifier_session"]
+
+        # Use cookie to access /auth/me
+        resp = await auth_client.get(
+            "/auth/me",
+            cookies={"amplifier_session": cookie_value},
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["username"] == "alice"
+
+    async def test_returns_401_without_cookie(self, auth_client):
+        """GET /auth/me returns 401 when no session cookie is present."""
+        resp = await auth_client.get("/auth/me")
+
+        assert resp.status_code == 401
+
+
+class TestLogoutRoute:
+    """Tests for POST /logout."""
+
+    @patch("amplifier_distro.server.auth_routes.authenticate_pam", return_value=True)
+    async def test_logout_clears_cookie(self, mock_pam, auth_client):
+        """POST /logout clears the amplifier_session cookie and redirects to /login."""
+        # Login first
+        login_resp = await auth_client.post(
+            "/login",
+            data={"username": "alice", "password": "correct"},
+            follow_redirects=False,
+        )
+        cookie_value = login_resp.cookies["amplifier_session"]
+
+        # Now logout
+        resp = await auth_client.post(
+            "/logout",
+            cookies={"amplifier_session": cookie_value},
+            follow_redirects=False,
+        )
+
+        assert resp.status_code in (303, 307)
+        # The cookie should be cleared (set to empty or max_age=0)
+        set_cookie = resp.headers.get("set-cookie", "")
+        assert "amplifier_session" in set_cookie
