@@ -49,7 +49,9 @@ def main() -> None:
 
 @main.command("serve")
 @click.option(
-    "--host", default="0.0.0.0", help="Bind host (use 127.0.0.1 to restrict to localhost)"
+    "--host",
+    default="0.0.0.0",
+    help="Bind host (use 127.0.0.1 to restrict to localhost)",
 )
 @click.option(
     "--port", default=conventions.SERVER_DEFAULT_PORT, type=int, help="Bind port"
@@ -290,6 +292,15 @@ def service_cmd_status() -> None:
 )
 def watchdog_cmd(host: str, port: int, supervised: bool) -> None:
     """Run the health watchdog (for service supervision — not user-facing)."""
+    from . import distro_settings
     from .server.watchdog import run_watchdog_loop
 
-    run_watchdog_loop(host=host, port=port, supervised=supervised)
+    wd = distro_settings.load().watchdog
+    run_watchdog_loop(
+        host=host,
+        port=port,
+        supervised=supervised,
+        check_interval=wd.check_interval,
+        restart_after=wd.restart_after,
+        max_restarts=wd.max_restarts,
+    )

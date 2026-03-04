@@ -248,39 +248,46 @@ def watchdog_group(ctx: click.Context) -> None:
 )
 @click.option(
     "--check-interval",
-    default=30,
+    default=None,
     type=int,
-    help="Seconds between health checks",
+    help="Seconds between health checks (default: from settings or 30)",
 )
 @click.option(
     "--restart-after",
-    default=300,
+    default=None,
     type=int,
-    help="Seconds of sustained downtime before restart",
+    help="Seconds of sustained downtime before restart (default: from settings or 300)",
 )
 @click.option(
     "--max-restarts",
-    default=5,
+    default=None,
     type=int,
-    help="Max restart attempts (0 = unlimited)",
+    help="Max restart attempts, 0 = unlimited (default: from settings or 5)",
 )
 @click.option("--apps-dir", default=None, help="Server apps directory")
 @click.option("--dev", is_flag=True, help="Server dev mode")
 def watchdog_start(
     host: str,
     port: int,
-    check_interval: int,
-    restart_after: int,
-    max_restarts: int,
+    check_interval: int | None,
+    restart_after: int | None,
+    max_restarts: int | None,
     apps_dir: str | None,
     dev: bool,
 ) -> None:
     """Start the watchdog as a background process."""
+    from amplifier_distro import distro_settings
     from amplifier_distro.server.watchdog import is_watchdog_running, start_watchdog
 
     if is_watchdog_running():
         click.echo("Watchdog is already running.", err=True)
         raise SystemExit(1)
+
+    # CLI flags override persisted settings; settings override hardcoded defaults.
+    wd = distro_settings.load().watchdog
+    check_interval = check_interval if check_interval is not None else wd.check_interval
+    restart_after = restart_after if restart_after is not None else wd.restart_after
+    max_restarts = max_restarts if max_restarts is not None else wd.max_restarts
 
     pid = start_watchdog(
         host=host,
