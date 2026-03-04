@@ -137,6 +137,19 @@ async def run_startup_preflight() -> None:
             logger.info("Running startup bundle preflight...")
             migrate_overlay()
             preflight_lightweight(overlay_bundle_path())
+
+            # Ensure provider SDK dependencies are installed before the
+            # full preflight (which will try to import them).  This
+            # recovers automatically after venv wipes from reinstalls.
+            from amplifier_distro.features import ensure_configured_provider_modules
+
+            installed = ensure_configured_provider_modules()
+            if installed:
+                logger.info(
+                    "Installed provider modules at startup: %s",
+                    ", ".join(installed),
+                )
+
             await preflight_full(overlay_dir())
             logger.info("Startup bundle preflight passed")
     except Exception:
