@@ -17,8 +17,11 @@ Usage::
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
+import tempfile
+import threading
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -28,6 +31,10 @@ import yaml
 from amplifier_distro import conventions
 
 logger = logging.getLogger(__name__)
+
+# Guards the load/modify/save cycle so concurrent API requests
+# (settings page, install wizard, Slack setup) cannot clobber each other.
+_settings_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -165,12 +172,29 @@ def load() -> DistroSettings:
 
 
 def save(settings: DistroSettings) -> Path:
-    """Persist distro settings to disk. Returns the file path."""
+    """Persist distro settings to disk atomically. Returns the file path.
+
+    Writes to a temporary file in the same directory then renames it into
+    place.  On POSIX the rename is atomic, so a crash mid-write can never
+    leave a truncated settings file.
+    """
     path = _settings_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        yaml.dump(asdict(settings), default_flow_style=False, sort_keys=False)
-    )
+    content = yaml.dump(asdict(settings), default_flow_style=False, sort_keys=False)
+
+    # Write to a temp file in the same directory (same filesystem) so
+    # os.replace() is guaranteed to be atomic on POSIX.
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".settings-", suffix=".yaml.tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
     return path
 
 
@@ -179,19 +203,24 @@ def update(section: str | None = None, **kwargs: Any) -> DistroSettings:
 
     If *section* is given (e.g. ``"slack"``), kwargs are applied to that
     nested dataclass.  Otherwise they are applied to the root.
+
+    The entire load/modify/save cycle is protected by ``_settings_lock``
+    so concurrent callers (settings page, install wizard, Slack setup)
+    cannot clobber each other's writes.
     """
-    settings = load()
-    if section is not None:
-        nested = getattr(settings, section)
-        for key, value in kwargs.items():
-            if hasattr(nested, key):
-                setattr(nested, key, value)
-    else:
-        for key, value in kwargs.items():
-            if hasattr(settings, key):
-                setattr(settings, key, value)
-    save(settings)
-    return settings
+    with _settings_lock:
+        settings = load()
+        if section is not None:
+            nested = getattr(settings, section)
+            for key, value in kwargs.items():
+                if hasattr(nested, key):
+                    setattr(nested, key, value)
+        else:
+            for key, value in kwargs.items():
+                if hasattr(settings, key):
+                    setattr(settings, key, value)
+        save(settings)
+        return settings
 
 
 # ---------------------------------------------------------------------------
