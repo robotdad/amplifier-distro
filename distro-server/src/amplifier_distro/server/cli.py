@@ -51,6 +51,11 @@ from amplifier_distro import conventions
     is_flag=True,
     help="Stub mode: serve UI with canned data for fast iteration (implies --dev)",
 )
+@click.option(
+    "--no-browser",
+    is_flag=True,
+    help="Don't auto-open browser on startup",
+)
 @click.pass_context
 def serve(
     ctx: click.Context,
@@ -60,6 +65,7 @@ def serve(
     reload: bool,
     dev: bool,
     stub: bool,
+    no_browser: bool,
 ) -> None:
     """Amplifier distro server.
 
@@ -70,7 +76,9 @@ def serve(
     if stub:
         dev = True  # stub implies dev
     if ctx.invoked_subcommand is None:
-        _run_foreground(host, port, apps_dir, reload, dev, stub=stub)
+        _run_foreground(
+            host, port, apps_dir, reload, dev, stub=stub, no_browser=no_browser
+        )
 
 
 @serve.command()
@@ -349,6 +357,7 @@ def _run_foreground(
     dev: bool,
     *,
     stub: bool = False,
+    no_browser: bool = False,
 ) -> None:
     """Run the server in the foreground."""
     import logging
@@ -473,6 +482,11 @@ def _run_foreground(
                 fg="yellow",
             )
         )
+
+    # Configure auto-browser-open (foreground, non-reload only)
+    if not no_browser and not reload:
+        browser_host = "127.0.0.1" if host == "0.0.0.0" else host
+        server.app.state.open_browser_url = f"http://{browser_host}:{port}/loading"
 
     if reload:
         import os as _os

@@ -24,6 +24,7 @@ via `from amplifier_distro.server.services import get_services`.
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import logging
 import os
@@ -118,10 +119,12 @@ class DistroServer:
 
         self._app.add_event_handler("shutdown", stop_services)
 
-        # Run bundle preflight at startup (validates overlay if configured)
-        from amplifier_distro.server.preflight import run_startup_preflight
+        # Readiness state for the loading page
+        self._app.state.ready = False
+        self._app.state.open_browser_url = None  # set by CLI for auto-browser-open
 
-        self._app.add_event_handler("startup", run_startup_preflight)
+        # Run bundle preflight in background so server accepts connections immediately
+        self._app.add_event_handler("startup", self._schedule_startup)
 
         self._app.include_router(self._core_router)
 
@@ -139,6 +142,37 @@ class DistroServer:
     def dev_mode(self) -> bool:
         """Whether the server is running in dev mode."""
         return self._dev_mode
+
+    async def _schedule_startup(self) -> None:
+        """Schedule preflight as background task so server can accept connections."""
+        self._startup_task = asyncio.create_task(self._run_startup_background())
+
+    async def _run_startup_background(self) -> None:
+        """Open browser, run preflight, then mark server as ready."""
+        # Let uvicorn's main loop start accepting connections
+        await asyncio.sleep(0.5)
+
+        # Open browser before preflight so loading page shows during warmup
+        url = self._app.state.open_browser_url
+        if url:
+            import webbrowser
+
+            try:
+                webbrowser.open(url)
+            except Exception:  # noqa: BLE001
+                logger.debug("Could not open browser", exc_info=True)
+
+        # Run the actual preflight warmup
+        from amplifier_distro.server.preflight import run_startup_preflight
+
+        try:
+            await run_startup_preflight()
+        except Exception:
+            logger.error("Startup preflight failed", exc_info=True)
+
+        # Always mark ready — errors surface through /api/status diagnostics
+        self._app.state.ready = True
+        logger.info("Server startup complete (ready=True)")
 
     def register_app(self, manifest: AppManifest) -> None:
         """Register an app with the server."""
@@ -205,6 +239,22 @@ class DistroServer:
         async def health() -> dict[str, str]:
             """Health check endpoint."""
             return {"status": "ok", "version": self._app.version}
+
+        @self._core_router.get("/ready")
+        async def ready() -> dict[str, Any]:
+            """Lightweight readiness check for the loading page.
+
+            Returns ``ready: false`` while the background startup preflight
+            is still running, and ``ready: true`` with the current setup
+            phase once it completes.
+            """
+            if not self._app.state.ready:
+                return {"ready": False, "phase": "starting"}
+
+            from amplifier_distro.server.apps.settings import compute_phase
+
+            phase = compute_phase()
+            return {"ready": True, "phase": phase}
 
         @self._core_router.get("/apps")
         async def list_apps() -> dict[str, dict[str, Any]]:
@@ -686,6 +736,14 @@ class DistroServer:
                     headers={"Cache-Control": "public, max-age=86400"},
                 )
             return Response(status_code=404)
+
+        @self._app.get("/loading", response_model=None, include_in_schema=False)
+        async def loading():
+            """Serve the loading/startup page."""
+            loading_page = _static_dir / "loading.html"
+            if loading_page.exists():
+                return HTMLResponse(content=loading_page.read_text())
+            return RedirectResponse(url="/")
 
         @self._app.get("/", response_model=None)
         async def root():
