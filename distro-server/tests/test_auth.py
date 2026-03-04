@@ -133,7 +133,7 @@ class TestSessionTokens:
 
     def test_create_verify_round_trip(self):
         """create + verify round-trip returns the original username."""
-        secret = "test-secret-key"
+        secret = "test-secret-key"  # noqa: S105
         token = create_session_token("alice", secret)
         result = verify_session_token(token, secret)
 
