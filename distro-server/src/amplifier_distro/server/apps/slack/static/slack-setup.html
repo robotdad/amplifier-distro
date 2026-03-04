@@ -7,6 +7,8 @@
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <script src="/static/theme-init.js"></script>
 <link rel="stylesheet" href="/static/amplifier-theme.css">
+<script src="/static/feedback-widget.js"></script>
+<script src="/static/amplifier-header.js"></script>
 <style>
 /* ------------------------------------------------------------------ */
 /*  Page-specific tokens                                               */
@@ -31,8 +33,8 @@ html, body {
 
 body {
   display: flex;
-  justify-content: center;
-  align-items: flex-start;
+  flex-direction: column;
+  align-items: center;
   min-height: 100vh;
   padding: 40px 20px;
 }
@@ -299,28 +301,19 @@ body {
   font-size: 13px;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Footer                                                             */
-/* ------------------------------------------------------------------ */
-.footer {
-  margin-top: 24px;
-  text-align: center;
-  font-size: 13px;
-  color: var(--ink-slate);
-}
-
-.footer a {
-  color: var(--signal);
-  text-decoration: none;
-}
-
-.footer a:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
+<div id="app-header" style="width:100%;max-width:640px;"></div>
+<script>
+AmplifierHeader.init({
+  appName: 'slack',
+  backLink: { url: '/apps/settings/', label: 'Settings' },
+  feedbackApp: 'slack-setup',
+  container: document.getElementById('app-header'),
+});
+</script>
 <div class="card">
-  <h1 class="wordmark wordmark-sm">amplifier</h1>
-  <p style="color: var(--ink-slate); font-size: 1.1rem; margin-top: 8px; text-align: center;">Connect Slack</p>
   <p class="tagline">Bridge your Slack workspace to Amplifier</p>
 
   <!-- ============================================================ -->
@@ -418,9 +411,6 @@ body {
     </div>
   </div>
 
-  <div class="footer">
-    <a href="/apps/settings/">Back to settings</a>
-  </div>
 </div>
 
 <script>

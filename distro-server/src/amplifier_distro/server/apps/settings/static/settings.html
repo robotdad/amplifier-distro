@@ -12,6 +12,9 @@
 <!-- Shared theme -->
 <link rel="stylesheet" href="/static/amplifier-theme.css">
 
+<script src="/static/feedback-widget.js"></script>
+<script src="/static/amplifier-header.js"></script>
+
 <style>
 /* ------------------------------------------------------------------ */
 /*  Settings-Specific Styles                                          */
@@ -36,42 +39,6 @@ body {
   padding: 40px;
   width: 100%;
   max-width: 720px;
-}
-
-/* ------------------------------------------------------------------ */
-/*  Header                                                             */
-/* ------------------------------------------------------------------ */
-.header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 32px;
-}
-
-.header h1 {
-  font-size: 24px;
-  font-weight: 700;
-}
-
-.header-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.header a {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--signal);
-  text-decoration: none;
-  padding: 8px 16px;
-  border: 1px solid var(--signal);
-  border-radius: var(--radius-button);
-  transition: all var(--duration-fast) var(--ease-out);
-}
-
-.header a:hover {
-  background: var(--signal);
-  color: #fff;
 }
 
 /* ------------------------------------------------------------------ */
@@ -800,6 +767,16 @@ body {
 </head>
 <body>
 
+<div id="app-header" style="width:100%;max-width:720px;"></div>
+<script>
+  AmplifierHeader.init({
+    appName: 'settings',
+    backLink: { url: '/', label: 'Dashboard' },
+    feedbackApp: 'settings',
+    container: document.getElementById('app-header'),
+  });
+</script>
+
 <div class="settings-card fade-in" id="settingsCard">
   <div class="loading-state" id="loadingState">
     <div class="loading-spinner"></div>
@@ -1032,7 +1009,7 @@ function render() {
   const tier1 = features.filter(f => f.tier === 1);
   const tier2 = features.filter(f => f.tier === 2);
 
-  card.innerHTML = renderHeader()
+  card.innerHTML = ''
     + renderConfigSection(config)
     + '<hr class="section-divider">'
     + renderProviders()
@@ -1053,23 +1030,6 @@ function render() {
     + renderFooter();
 
   bindEvents();
-}
-
-/* ------------------------------------------------------------------ */
-/*  Header                                                             */
-/* ------------------------------------------------------------------ */
-function renderHeader() {
-  return '<div class="wordmark-wrapper">'
-    + '<h1 class="wordmark wordmark-sm">amplifier</h1>'
-    + '<p style="color: var(--ink-slate); font-size: 1.1rem; margin-top: 8px;">Settings</p>'
-    + '</div>'
-    + '<div class="header" style="margin-top: 24px; margin-bottom: 0;">'
-    + '<div></div>'
-    + '<div class="header-actions">'
-    + '<a href="/">Back to Dashboard</a>'
-    + '<span id="feedback-slot"></span>'
-    + '</div>'
-    + '</div>';
 }
 
 /* ------------------------------------------------------------------ */
@@ -1535,14 +1495,6 @@ function esc(str) {
 /*  Boot                                                               */
 /* ================================================================== */
 loadAll();
-</script>
-<script src="/static/feedback-widget.js"></script>
-<script>
-  AmplifierFeedback.init({
-    mode: 'inline',
-    container: document.getElementById('feedback-slot'),
-    context: { app: 'settings' },
-  });
 </script>
 </body>
 </html>
