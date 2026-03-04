@@ -49,11 +49,15 @@ class TestAuthenticatePam:
         )
 
     @patch("amplifier_distro.server.auth._pam", None)
-    def test_returns_false_when_pam_unavailable(self):
-        """authenticate_pam returns False when the pam module is not installed."""
-        result = authenticate_pam("alice", "password")
+    def test_returns_false_when_pam_unavailable(self, caplog):
+        """Returns False and logs warning when pam module is not installed."""
+        with caplog.at_level(logging.WARNING, logger="amplifier_distro.server.auth"):
+            result = authenticate_pam("alice", "password")
 
         assert result is False
+        assert any(
+            "PAM module not available" in record.message for record in caplog.records
+        )
 
 
 class TestIsAuthApplicable:
@@ -105,14 +109,14 @@ class TestIsAuthApplicable:
 
         assert result is False
 
-    def test_defaults_platform_none_auth_enabled_true(self):
-        """Default parameter values: platform=None, auth_enabled=True."""
-        # With defaults: tls_active=True, platform=None -> not applicable
+    def test_platform_defaults_to_none(self):
+        """platform defaults to None, making auth not applicable."""
         result = is_auth_applicable(tls_active=True)
 
         assert result is False
 
-        # Explicit Linux + TLS -> applicable (auth_enabled defaults True)
+    def test_auth_enabled_defaults_to_true(self):
+        """auth_enabled defaults to True, so Linux + TLS is sufficient."""
         result = is_auth_applicable(tls_active=True, platform="linux")
 
         assert result is True
