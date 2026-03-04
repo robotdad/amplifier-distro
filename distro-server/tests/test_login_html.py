@@ -120,3 +120,15 @@ class TestLoginHtmlStyling:
     def test_has_border_radius(self, html_content):
         """Card has rounded corners (border-radius)."""
         assert "border-radius" in html_content
+
+
+class TestLoginHtmlTheme:
+    """Validate light/dark theme support (system preference, no hardcoding)."""
+
+    def test_login_html_does_not_hardcode_dark_class(self, html_content):
+        """html element must NOT have class="dark" hardcoded."""
+        assert 'class="dark"' not in html_content
+
+    def test_login_html_includes_theme_init_js(self, html_content):
+        """head must include theme-init.js for system-preference theme detection."""
+        assert "theme-init.js" in html_content

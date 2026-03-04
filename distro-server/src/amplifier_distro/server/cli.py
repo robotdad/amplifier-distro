@@ -107,6 +107,14 @@ def serve(
     if tls_mode == "off" and ssl_certfile:
         tls_mode = "manual"
     if ctx.invoked_subcommand is None:
+        # Detect whether --tls was explicitly provided by the user (vs default "off").
+        # When explicit, honour the value as-is (--tls off is the escape hatch).
+        import click.core
+
+        tls_explicit = (
+            ctx.get_parameter_source("tls_mode")
+            == click.core.ParameterSource.COMMANDLINE
+        )
         _run_foreground(
             host,
             port,
@@ -116,6 +124,7 @@ def serve(
             stub=stub,
             no_browser=no_browser,
             tls_mode=tls_mode,
+            tls_explicit=tls_explicit,
             ssl_certfile=ssl_certfile,
             ssl_keyfile=ssl_keyfile,
             no_auth=no_auth,
@@ -407,6 +416,7 @@ def _run_foreground(
     stub: bool = False,
     no_browser: bool = False,
     tls_mode: str = "off",
+    tls_explicit: bool = False,
     ssl_certfile: str = "",
     ssl_keyfile: str = "",
     no_auth: bool = False,
@@ -503,7 +513,18 @@ def _run_foreground(
         click.echo("")
         scheme = "https"
     else:
-        # No tailscale serve — resolve certs for native TLS if requested
+        # No tailscale serve.
+        # Auto-enable self-signed TLS when serving on 0.0.0.0 (remote access)
+        # and the user did NOT explicitly pass --tls off as an escape hatch.
+        if host == "0.0.0.0" and tls_mode == "off" and not tls_explicit:
+            tls_mode = "auto"
+            click.echo("  Auto-enabling TLS (remote access without Tailscale)")
+            click.echo(
+                "  Tip: Use --tls off to disable,"
+                " or install Tailscale for trusted certs"
+            )
+
+        # Resolve certs for native TLS if requested
         from amplifier_distro.server.tls import resolve_cert
 
         tls_paths = resolve_cert(

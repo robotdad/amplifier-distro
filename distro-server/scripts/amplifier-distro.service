@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=amp-distro serve --host 0.0.0.0 --port 8400
+ExecStart=amp-distro serve --port 8400
 Restart=on-failure
 RestartSec=5
 StartLimitBurst=5
