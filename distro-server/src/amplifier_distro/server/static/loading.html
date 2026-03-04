@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>amplifier</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <script>
+    // Inline dark-mode detection (from theme-init.js) so this page
+    // has zero external dependencies and renders in a single request.
+    (function() {
+      try {
+        var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (prefersDark) {
+          document.documentElement.dataset.theme = 'dark';
+          document.documentElement.style.backgroundColor = '#171717';
+        } else {
+          document.documentElement.style.backgroundColor = '#FDFCFA';
+        }
+      } catch(e) {}
+    })();
+  </script>
+  <!--
+    amplifier-theme.css is intentionally NOT loaded here.
+    During startup, the bundle preflight can block the event loop
+    for 30+ seconds, preventing the server from serving font files
+    or responding to polls.  This page uses inline styles with
+    system fonts and hardcoded colors so it renders immediately
+    from a single HTTP response — no sub-resource fetches required.
+  -->
+  <style>
+    :root {
+      --loading-canvas: #FDFCFA;
+      --loading-signal: #5B4DE3;
+      --loading-fog: #7A7A7A;
+    }
+    [data-theme="dark"] {
+      --loading-canvas: #171717;
+      --loading-signal: #7B6FF0;
+      --loading-fog: #737373;
+    }
+
+    body {
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      background: var(--loading-canvas);
+      gap: 32px;
+      overflow: hidden;
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    .wordmark-loading {
+      font-weight: 700;
+      font-size: clamp(2rem, 6vw, 3rem);
+      color: var(--loading-signal);
+      letter-spacing: -0.03em;
+      text-transform: lowercase;
+      display: flex;
+      align-items: baseline;
+    }
+
+    .wordmark-loading .letter {
+      display: inline-block;
+      opacity: 0;
+      transform: translateY(16px);
+      animation: letterIn 400ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    }
+
+    .wordmark-loading .dots {
+      display: inline-flex;
+      margin-left: 2px;
+    }
+
+    .wordmark-loading .dots .dot {
+      opacity: 0;
+      animation: dotPulse 1.5s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+    }
+
+    .wordmark-loading .dots .dot:nth-child(1) { animation-delay: 0.9s; }
+    .wordmark-loading .dots .dot:nth-child(2) { animation-delay: 1.05s; }
+    .wordmark-loading .dots .dot:nth-child(3) { animation-delay: 1.2s; }
+
+    .status-text {
+      font-size: 14px;
+      color: var(--loading-fog);
+      text-align: center;
+    }
+
+    .status-text a {
+      color: var(--loading-signal);
+      text-decoration: none;
+    }
+
+    .status-text a:hover {
+      text-decoration: underline;
+    }
+
+    @keyframes letterIn {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes dotPulse {
+      0%, 20% { opacity: 0; }
+      40%     { opacity: 1; }
+      60%, 100% { opacity: 0; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .wordmark-loading .letter {
+        opacity: 1;
+        transform: none;
+        animation: none;
+      }
+      .wordmark-loading .dots .dot {
+        animation: dotPulse 2s ease infinite;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wordmark-loading" aria-label="amplifier" role="heading" aria-level="1">
+    <!-- Letters injected by JS for staggered animation -->
+  </div>
+
+  <p class="status-text" id="status">starting up...</p>
+
+  <script>
+    (function() {
+      // Build the letter-by-letter wordmark
+      var word = 'amplifier';
+      var container = document.querySelector('.wordmark-loading');
+      var stagger = 80; // ms between each letter
+
+      for (var i = 0; i < word.length; i++) {
+        var span = document.createElement('span');
+        span.className = 'letter';
+        span.textContent = word[i];
+        span.style.animationDelay = (i * stagger) + 'ms';
+        container.appendChild(span);
+      }
+
+      // Add the animated dots
+      var dots = document.createElement('span');
+      dots.className = 'dots';
+      for (var d = 0; d < 3; d++) {
+        var dot = document.createElement('span');
+        dot.className = 'dot';
+        dot.textContent = '.';
+        dots.appendChild(dot);
+      }
+      container.appendChild(dots);
+
+      // Polling with per-request timeout to handle blocked event loop.
+      // During preflight, the server's event loop may be blocked so
+      // fetch() hangs indefinitely.  AbortController caps each attempt
+      // at 3 seconds so we keep retrying instead of waiting forever.
+      var statusEl = document.getElementById('status');
+      var startTime = Date.now();
+      var timeoutMs = 60000;   // 60s overall (preflight can take 30s+)
+      var pollInterval = 1000; // 1s between polls
+      var fetchTimeout = 3000; // 3s per fetch before aborting
+      var redirecting = false;
+
+      function poll() {
+        if (redirecting) return;
+
+        var controller = new AbortController();
+        var tid = setTimeout(function() { controller.abort(); }, fetchTimeout);
+
+        fetch('/api/ready', { signal: controller.signal })
+          .then(function(resp) { clearTimeout(tid); return resp.json(); })
+          .then(function(data) {
+            if (redirecting) return;
+            if (data.ready) {
+              redirecting = true;
+              statusEl.textContent = 'ready';
+              // Brief pause so user sees "ready" before redirect
+              setTimeout(function() {
+                if (data.phase === 'unconfigured') {
+                  window.location.href = '/apps/install-wizard/';
+                } else {
+                  window.location.href = '/';
+                }
+              }, 400);
+            } else {
+              scheduleNext();
+            }
+          })
+          .catch(function() {
+            // Fetch timed out or server not responding — keep trying
+            clearTimeout(tid);
+            scheduleNext();
+          });
+      }
+
+      function scheduleNext() {
+        if (Date.now() - startTime > timeoutMs) {
+          statusEl.innerHTML =
+            'taking longer than expected\u2026 <a href="/">continue anyway</a>';
+          return;
+        }
+        setTimeout(poll, pollInterval);
+      }
+
+      // Start polling
+      poll();
+    })();
+  </script>
+</body>
+</html>
