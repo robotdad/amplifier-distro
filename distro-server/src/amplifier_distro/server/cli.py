@@ -105,8 +105,9 @@ def serve(
     # --ssl-certfile implies manual TLS mode when tls_mode is still default
     if tls_mode == "off" and ssl_certfile:
         tls_mode = "manual"
+    if no_auth:
+        click.echo("Warning: --no-auth not yet implemented", err=True)
     if ctx.invoked_subcommand is None:
-        # TODO: wire no_auth to auth middleware
         _run_foreground(
             host,
             port,
