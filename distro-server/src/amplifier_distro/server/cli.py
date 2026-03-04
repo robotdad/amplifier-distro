@@ -15,7 +15,9 @@ Usage:
 from __future__ import annotations
 
 import socket
+import sys
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -56,6 +58,28 @@ from amplifier_distro import conventions
     is_flag=True,
     help="Don't auto-open browser on startup",
 )
+@click.option(
+    "--tls",
+    "tls_mode",
+    type=click.Choice(["auto", "off", "manual"], case_sensitive=False),
+    default="off",
+    help="TLS mode: auto (self-signed), off (plain HTTP), manual (provide certs)",
+)
+@click.option(
+    "--ssl-certfile",
+    default="",
+    help="Path to SSL certificate file (implies --tls manual)",
+)
+@click.option(
+    "--ssl-keyfile",
+    default="",
+    help="Path to SSL private key file (used with --ssl-certfile)",
+)
+@click.option(
+    "--no-auth",
+    is_flag=True,
+    help="Disable authentication",
+)
 @click.pass_context
 def serve(
     ctx: click.Context,
@@ -66,6 +90,10 @@ def serve(
     dev: bool,
     stub: bool,
     no_browser: bool,
+    tls_mode: str,
+    ssl_certfile: str,
+    ssl_keyfile: str,
+    no_auth: bool,
 ) -> None:
     """Amplifier distro server.
 
@@ -75,9 +103,22 @@ def serve(
     ctx.ensure_object(dict)
     if stub:
         dev = True  # stub implies dev
+    # --ssl-certfile implies manual TLS mode when tls_mode is still default
+    if tls_mode == "off" and ssl_certfile:
+        tls_mode = "manual"
     if ctx.invoked_subcommand is None:
         _run_foreground(
-            host, port, apps_dir, reload, dev, stub=stub, no_browser=no_browser
+            host,
+            port,
+            apps_dir,
+            reload,
+            dev,
+            stub=stub,
+            no_browser=no_browser,
+            tls_mode=tls_mode,
+            ssl_certfile=ssl_certfile,
+            ssl_keyfile=ssl_keyfile,
+            no_auth=no_auth,
         )
 
 
@@ -365,6 +406,10 @@ def _run_foreground(
     *,
     stub: bool = False,
     no_browser: bool = False,
+    tls_mode: str = "off",
+    ssl_certfile: str = "",
+    ssl_keyfile: str = "",
+    no_auth: bool = False,
 ) -> None:
     """Run the server in the foreground."""
     import logging
@@ -438,7 +483,61 @@ def _run_foreground(
     services = init_services(dev_mode=dev)
     click.echo(f"Services: backend={type(services.backend).__name__}")
 
-    server = create_server(dev_mode=dev, host=host)
+    # Tailscale HTTPS: auto-detect and set up reverse proxy first.
+    # Must happen before TLS resolution so we can skip native TLS when
+    # tailscale serve is handling HTTPS as a reverse proxy.
+    ts_url = _setup_tailscale(port)
+
+    # TLS certificate resolution — skip if tailscale serve is handling HTTPS.
+    # tailscale serve proxies HTTPS (port 443) → plain HTTP on our port.
+    # Enabling native TLS here would break it: tailscale sends plain HTTP but
+    # uvicorn would expect TLS, causing 502 Bad Gateway errors.
+    ssl_kwargs: dict[str, Any] = {}
+    if ts_url:
+        # Tailscale serve is active as reverse proxy — native TLS not needed.
+        # Always show the prominent green block so users can copy the URL to
+        # their phone / other devices regardless of whether --tls was passed.
+        click.echo("")
+        click.echo(click.style("  ✓ HTTPS provided by Tailscale", fg="green"))
+        click.echo(f"    {ts_url}")
+        click.echo("")
+        scheme = "https"
+    else:
+        # No tailscale serve — resolve certs for native TLS if requested
+        from amplifier_distro.server.tls import resolve_cert
+
+        tls_paths = resolve_cert(
+            mode=tls_mode, certfile=ssl_certfile, keyfile=ssl_keyfile
+        )
+        if tls_paths is not None:
+            ssl_kwargs["ssl_certfile"] = str(tls_paths[0])
+            ssl_kwargs["ssl_keyfile"] = str(tls_paths[1])
+            scheme = "https"
+        else:
+            scheme = "http"
+
+    # Auth setup (conditional: TLS active + Linux + enabled).
+    # TLS is considered active when either native TLS (ssl_kwargs) or
+    # tailscale serve (ts_url) is providing an encrypted transport.
+    from amplifier_distro.distro_settings import load as load_settings
+    from amplifier_distro.server.auth import get_or_create_secret, is_auth_applicable
+
+    settings = load_settings()
+    auth_secret = ""
+    tls_active = bool(ssl_kwargs) or bool(ts_url)
+    if (
+        not no_auth
+        and tls_active
+        and is_auth_applicable(
+            tls_active=True,
+            platform=sys.platform,
+            auth_enabled=settings.server.auth.enabled,
+        )
+    ):
+        auth_secret = get_or_create_secret()
+        logger.info("PAM authentication enabled")
+
+    server = create_server(dev_mode=dev, host=host, auth_secret=auth_secret)
 
     # Auto-discover apps
     loaded_apps: list[str] = []
@@ -470,16 +569,13 @@ def _run_foreground(
         logger=logger,
     )
 
-    # Tailscale HTTPS: auto-detect and set up reverse proxy
-    ts_url = _setup_tailscale(port)
-
     click.echo(f"Starting Amplifier Distro Server on {host}:{port}")
-    click.echo(f"  Local: http://{host}:{port}")
+    click.echo(f"  Local: {scheme}://{host}:{port}")
     click.echo(f"  Session: {session_path}")
     click.echo(f"  Logs: {log_file}")
     if ts_url:
         click.echo(f"  HTTPS: {ts_url}  (Tailscale)")
-    click.echo(f"  API docs: http://{host}:{port}/api/docs")
+    click.echo(f"  API docs: {scheme}://{host}:{port}/api/docs")
 
     if dev:
         click.echo(
@@ -510,6 +606,7 @@ def _run_foreground(
             log_level="info",
             ws_ping_interval=20,
             ws_ping_timeout=20,
+            **ssl_kwargs,
         )
     else:
         uvicorn.run(
@@ -519,6 +616,7 @@ def _run_foreground(
             log_level="info",
             ws_ping_interval=20,
             ws_ping_timeout=20,
+            **ssl_kwargs,
         )
 
 

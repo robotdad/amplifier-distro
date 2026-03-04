@@ -660,6 +660,41 @@ body {
   color: var(--warning);
   border-color: var(--warning);
 }
+
+/* ------------------------------------------------------------------ */
+/*  Secure-context error banner                                       */
+/* ------------------------------------------------------------------ */
+.secure-context-banner {
+  background: #1a1a2e;
+  border: 1px solid #2a2a4a;
+  border-radius: 8px;
+  padding: 16px 20px;
+  color: #e2e8f0;
+  font-size: 14px;
+}
+.secure-context-banner h3 {
+  font-weight: 700;
+  font-size: 15px;
+  margin: 0 0 8px 0;
+}
+.secure-context-banner p {
+  color: #94a3b8;
+  margin: 0 0 12px 0;
+}
+.secure-context-banner ul {
+  margin: 0;
+  padding-left: 20px;
+  color: #94a3b8;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.secure-context-banner code {
+  background: #2a2a4a;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #e2e8f0;
+}
 </style>
 </head>
 <body>
@@ -680,6 +715,7 @@ body {
 
   function useWebRTC({ onMessage, onStateChange }) {
     const [rtcState, setRtcState] = useState('idle');
+    const [secureContextError, setSecureContextError] = useState(false);
     const pcRef = useRef(null);
     const dcRef = useRef(null);
     const tokenRef = useRef(null);
@@ -697,6 +733,14 @@ body {
     // -----------------------------------------------------------------------
     const connect = useCallback(async (initialItems = []) => {
       updateState('connecting');
+      setSecureContextError(false);
+
+      // Guard: microphone requires a secure context (HTTPS or localhost)
+      if (!window.isSecureContext) {
+        updateState('disconnected');
+        setSecureContextError(true);
+        return;
+      }
 
       // Step 1: Fetch ephemeral token from backend
       let token;
@@ -921,7 +965,7 @@ body {
       }
     }, []);
 
-    return { rtcState, connect, disconnect, sendDataChannelMessage, dcRef, streamRef };
+    return { rtcState, secureContextError, connect, disconnect, sendDataChannelMessage, dcRef, streamRef };
   }
 
   // -------------------------------------------------------------------------
@@ -1898,7 +1942,7 @@ body {
       console.debug('[VoiceApp] RTC state changed:', state);  // Task 5.3
     }, []);
 
-    const { rtcState, connect, disconnect, sendDataChannelMessage, streamRef } = useWebRTC({
+    const { rtcState, secureContextError, connect, disconnect, sendDataChannelMessage, streamRef } = useWebRTC({
       onMessage: stableMsgHandler,
       onStateChange: handleStateChange,
     });
@@ -2168,6 +2212,20 @@ body {
         `}
 
         <${DelegationOverlay} state=${delegationState} />
+
+        ${secureContextError && html`
+          <div class="secure-context-banner">
+            <h3>Voice requires a secure connection</h3>
+            <p>
+              Browsers block microphone access over plain HTTP. To fix this, try one of:
+            </p>
+            <ul>
+              <li>Run with <code>--tls auto</code> to enable automatic HTTPS</li>
+              <li>Access via a Tailscale hostname (HTTPS is automatic)</li>
+              <li>Use <code>localhost</code> instead of a bare IP address</li>
+            </ul>
+          </div>
+        `}
 
         ${error && html`
           <div class="error-banner">

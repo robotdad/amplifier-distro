@@ -56,6 +56,7 @@ from amplifier_distro.server.apps.voice.transcript.models import (
 from amplifier_distro.server.apps.voice.transcript.repository import (
     VoiceConversationRepository,
 )
+from amplifier_distro.server.origins import build_allowed_origins, is_origin_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,9 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 _active_connection: VoiceConnection | None = None
+
+# Dynamic origin allow-list for CSRF checks
+_allowed_origins: set[str] = {"localhost", "127.0.0.1"}
 
 # Test-injection overrides (set these in tests; None = use real services)
 _backend_override: Any = None
@@ -130,13 +134,16 @@ async def _require_api_key(x_api_key: str | None = Header(default=None)) -> None
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
+def init_allowed_origins(extra: list[str] | None = None) -> None:
+    """Rebuild _allowed_origins from build_allowed_origins()."""
+    global _allowed_origins
+    _allowed_origins = set(build_allowed_origins(extra))
+
+
 async def _check_origin(origin: str | None = Header(default=None)) -> None:
-    """CSRF: allow localhost/127.0.0.1; 403 for any other origin; no origin = allow."""
-    if origin is None:
-        return  # no origin header → allow
-    if "localhost" in origin or "127.0.0.1" in origin:
-        return  # trusted local origin
-    raise HTTPException(status_code=403, detail="CSRF: origin not allowed")
+    """CSRF: allow origins in _allowed_origins; 403 for any other; no origin = allow."""
+    if not is_origin_allowed(origin, _allowed_origins):
+        raise HTTPException(status_code=403, detail="CSRF: origin not allowed")
 
 
 def _validate_session_id(session_id: str) -> None:

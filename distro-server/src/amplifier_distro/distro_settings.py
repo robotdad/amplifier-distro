@@ -98,6 +98,32 @@ class WatchdogSettings:
 
 
 @dataclass
+class TlsSettings:
+    """TLS configuration for the server."""
+
+    mode: str = "off"
+    certfile: str = ""
+    keyfile: str = ""
+
+
+@dataclass
+class AuthSettings:
+    """Authentication configuration for the server."""
+
+    enabled: bool = True
+    session_timeout: int = 2592000  # 30 days in seconds
+
+
+@dataclass
+class ServerSettings:
+    """Server network settings (TLS, auth, CORS)."""
+
+    tls: TlsSettings = field(default_factory=TlsSettings)
+    auth: AuthSettings = field(default_factory=AuthSettings)
+    allowed_origins: list[str] = field(default_factory=list)
+
+
+@dataclass
 class DistroSettings:
     """Root settings object for the distro experience layer."""
 
@@ -107,6 +133,7 @@ class DistroSettings:
     slack: SlackSettings = field(default_factory=SlackSettings)
     voice: VoiceSettings = field(default_factory=VoiceSettings)
     watchdog: WatchdogSettings = field(default_factory=WatchdogSettings)
+    server: ServerSettings = field(default_factory=ServerSettings)
 
 
 # ---------------------------------------------------------------------------

@@ -98,6 +98,8 @@ class DistroServer:
         version: str = "0.1.0",
         dev_mode: bool = False,
         host: str = "0.0.0.0",
+        auth_secret: str = "",
+        session_timeout: int = 2592000,
     ) -> None:
         self._apps: dict[str, AppManifest] = {}
         self._dev_mode = dev_mode
@@ -127,6 +129,20 @@ class DistroServer:
         self._app.add_event_handler("startup", self._schedule_startup)
 
         self._app.include_router(self._core_router)
+
+        # Auth routes and middleware (conditional on auth_secret being set)
+        if auth_secret:
+            from amplifier_distro.server.auth import create_auth_middleware
+            from amplifier_distro.server.auth_routes import create_auth_router
+
+            auth_router = create_auth_router(
+                secret=auth_secret, session_timeout=session_timeout
+            )
+            self._app.include_router(auth_router)
+            AuthMiddleware = create_auth_middleware(
+                secret=auth_secret, session_timeout=session_timeout
+            )
+            self._app.add_middleware(AuthMiddleware)
 
     @property
     def app(self) -> FastAPI:

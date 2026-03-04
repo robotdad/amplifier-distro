@@ -21,6 +21,7 @@ SETTINGS_FILENAME = "settings.yaml"
 # --- Distro Home ---
 # Override with AMPLIFIER_DISTRO_HOME env var.
 DISTRO_HOME = os.environ.get("AMPLIFIER_DISTRO_HOME", "~/.amplifier-distro")
+DISTRO_CERTS_DIR = f"{DISTRO_HOME}/certs"
 
 # --- Distro Settings ---
 DISTRO_SETTINGS_FILENAME = "settings.yaml"  # distro-layer config (inside DISTRO_HOME)

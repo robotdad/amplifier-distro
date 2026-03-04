@@ -16,10 +16,13 @@ Test classes:
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
-from fastapi import FastAPI
 from starlette.testclient import TestClient
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
 
 import amplifier_distro.server.apps.voice as voice_module
 import amplifier_distro.server.stub as stub_module
@@ -300,6 +303,15 @@ class TestCsrfProtection:
         from amplifier_distro.server.apps.voice import _check_origin
 
         await _check_origin(origin=None)
+
+    async def test_events_tailscale_origin_allowed(self, monkeypatch) -> None:
+        """_check_origin allows Tailscale DNS origins when in _allowed_origins."""
+        from amplifier_distro.server.apps.voice import _check_origin
+
+        patched = voice_module._allowed_origins | {"mybox.tail1234.ts.net"}
+        monkeypatch.setattr(voice_module, "_allowed_origins", patched)
+        # Should complete without raising HTTPException
+        await _check_origin(origin="https://mybox.tail1234.ts.net:8400")
 
 
 # ---------------------------------------------------------------------------

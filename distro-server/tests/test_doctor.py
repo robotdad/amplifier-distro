@@ -642,6 +642,44 @@ class TestDoctorCLI:
             assert len(data["fixes_applied"]) == 1
 
 
+class TestSecurityChecks:
+    """Doctor checks for TLS/auth infrastructure."""
+
+    def test_shadow_group_check_exists(self):
+        """The _check_shadow_group function exists and returns DiagnosticCheck."""
+        from amplifier_distro.doctor import _check_shadow_group
+
+        result = _check_shadow_group()
+        assert isinstance(result, DiagnosticCheck)
+        assert result.name == "Shadow group"
+
+    def test_certs_check_exists(self):
+        """The _check_tls_certs function exists and returns DiagnosticCheck."""
+        from amplifier_distro.doctor import _check_tls_certs
+
+        result = _check_tls_certs()
+        assert isinstance(result, DiagnosticCheck)
+        assert result.name == "TLS certificates"
+
+    def test_tailscale_check_exists(self):
+        """The _check_tailscale function exists and returns DiagnosticCheck."""
+        from amplifier_distro.doctor import _check_tailscale
+
+        result = _check_tailscale()
+        assert isinstance(result, DiagnosticCheck)
+        assert result.name == "Tailscale"
+
+    def test_shadow_group_skipped_on_non_linux(self):
+        from unittest.mock import patch
+
+        from amplifier_distro.doctor import _check_shadow_group
+
+        with patch("amplifier_distro.doctor.platform.system", return_value="Darwin"):
+            result = _check_shadow_group()
+            assert result.status == CheckStatus.ok
+            assert "skip" in result.message.lower() or "linux" in result.message.lower()
+
+
 # ---------------------------------------------------------------------------
 # Full diagnostics integration test
 # ---------------------------------------------------------------------------
@@ -653,7 +691,7 @@ class TestRunDiagnostics:
     @patch("amplifier_distro.doctor.subprocess.run", side_effect=FileNotFoundError)
     @patch("amplifier_distro.doctor.shutil.which", return_value=None)
     def test_all_checks_present(self, _mock_which, _mock_run, tmp_path):
-        """run_diagnostics must return all 13 named checks."""
+        """run_diagnostics must return all 16 named checks."""
         report = _run_with_home(tmp_path)
         names = [c.name for c in report.checks]
         expected = [
@@ -670,10 +708,13 @@ class TestRunDiagnostics:
             "GitHub CLI",
             "Slack bridge",
             "Voice config",
+            "Shadow group",
+            "TLS certificates",
+            "Tailscale",
         ]
         for name in expected:
             assert name in names, f"Missing check: {name}"
-        assert len(report.checks) == 13
+        assert len(report.checks) == 16
 
 
 # ---------------------------------------------------------------------------
