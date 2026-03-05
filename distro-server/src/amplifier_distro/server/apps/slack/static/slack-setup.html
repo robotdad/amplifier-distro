@@ -126,6 +126,18 @@ body {
   letter-spacing: 0.5px;
 }
 
+.field-hint {
+  margin: 0 0 2px;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.field-note {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--ink-slate);
+}
+
 .field input, .field select {
   width: 100%;
   padding: 10px 14px;
@@ -356,20 +368,21 @@ body {
     </div>
     <div class="step-body">
       <p class="step-hint">
-        After installing the app: copy the <strong>Bot Token</strong> from
-        OAuth &amp; Permissions, and the <strong>App Token</strong> from
-        Basic Information &gt; App-Level Tokens
-        (create one with <code>connections:write</code> scope).
+        After installing the app, grab these two tokens from your
+        <a href="https://api.slack.com/apps" target="_blank" rel="noopener">Slack app</a> settings:
       </p>
       <div class="field">
-        <label for="botToken">Bot Token</label>
-        <input type="password" id="botToken" placeholder="xoxb-..." autocomplete="off" spellcheck="false">
-        <div class="validation none" id="botStatus">Paste your Bot User OAuth Token</div>
+        <label for="appToken">App Token</label>
+        <p class="field-hint">Settings &gt; Basic Information &gt; App-Level Tokens</p>
+        <p class="field-note">Create one with <code>connections:write</code> scope.</p>
+        <input type="password" id="appToken" placeholder="xapp-..." autocomplete="off" spellcheck="false">
+        <div class="validation none" id="appStatus"></div>
       </div>
       <div class="field">
-        <label for="appToken">App Token</label>
-        <input type="password" id="appToken" placeholder="xapp-..." autocomplete="off" spellcheck="false">
-        <div class="validation none" id="appStatus">Paste your App-Level Token</div>
+        <label for="botToken">Bot Token</label>
+        <p class="field-hint">Features &gt; OAuth &amp; Permissions &gt; OAuth Tokens</p>
+        <input type="password" id="botToken" placeholder="xoxb-..." autocomplete="off" spellcheck="false">
+        <div class="validation none" id="botStatus"></div>
       </div>
       <button class="btn btn-primary" id="validateBtn" disabled>Validate Tokens</button>
       <div id="validateFeedback"></div>
@@ -511,20 +524,22 @@ function updateValidateBtn() {
   const app = appToken.value.trim();
   validateBtn.disabled = !bot.startsWith('xoxb-');
 
-  if (bot && !bot.startsWith('xoxb-')) {
-    showValidation(botStatus, 'fail', 'Must start with xoxb-');
-  } else if (bot) {
-    showValidation(botStatus, 'none', 'Ready to validate');
-  } else {
-    showValidation(botStatus, 'none', 'Paste your Bot User OAuth Token');
-  }
-
   if (app && !app.startsWith('xapp-')) {
     showValidation(appStatus, 'fail', 'Must start with xapp-');
   } else if (app) {
     showValidation(appStatus, 'none', 'Ready to validate');
   } else {
-    showValidation(appStatus, 'none', 'Paste your App-Level Token');
+    appStatus.className = 'validation none';
+    appStatus.innerHTML = '';
+  }
+
+  if (bot && !bot.startsWith('xoxb-')) {
+    showValidation(botStatus, 'fail', 'Must start with xoxb-');
+  } else if (bot) {
+    showValidation(botStatus, 'none', 'Ready to validate');
+  } else {
+    botStatus.className = 'validation none';
+    botStatus.innerHTML = '';
   }
 }
 
