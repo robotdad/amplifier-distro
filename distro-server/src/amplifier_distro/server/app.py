@@ -28,6 +28,8 @@ import asyncio
 import importlib.util
 import logging
 import os
+import platform
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -45,6 +47,27 @@ logger = logging.getLogger(__name__)
 # Optional bearer token scheme (auto_error=False so missing header
 # doesn't raise before our logic runs).
 _bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def _is_wsl() -> bool:
+    """Detect if running in WSL (Windows Subsystem for Linux).
+
+    Returns:
+        True if running in WSL, False otherwise
+    """
+    if platform.system() != "Linux":
+        return False
+
+    # Check WSL-specific environment variables (WSL2)
+    if "WSL_DISTRO_NAME" in os.environ or "WSL_INTEROP" in os.environ:
+        return True
+
+    # Check /proc/version for "microsoft" string (WSL1 and WSL2)
+    try:
+        with open("/proc/version") as f:
+            return "microsoft" in f.read().lower()
+    except Exception:
+        return False
 
 
 def _get_configured_api_key() -> str:
@@ -171,12 +194,25 @@ class DistroServer:
         # Open browser before preflight so loading page shows during warmup
         url = self._app.state.open_browser_url
         if url:
-            import webbrowser
-
             try:
-                webbrowser.open(url)
+                if _is_wsl():
+                    # On WSL: use explorer.exe to open in Windows host browser
+                    logger.info(f"Opening browser via Windows host: {url}")
+                    subprocess.run(["explorer.exe", url], check=False)
+                else:
+                    # On macOS and regular Linux: use standard webbrowser module
+                    import webbrowser
+
+                    logger.info(f"Opening browser: {url}")
+                    webbrowser.open(url)
             except Exception:  # noqa: BLE001
-                logger.debug("Could not open browser", exc_info=True)
+                logger.warning(
+                    "Could not open browser. If running headless, browser may have "
+                    "appeared to open successfully but no display is available. "
+                    "Access the server manually at: %s",
+                    url,
+                    exc_info=True,
+                )
 
         # Run the actual preflight warmup
         from amplifier_distro.server.preflight import run_startup_preflight
