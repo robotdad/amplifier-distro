@@ -1,17 +1,23 @@
 # =============================================================================
-# GitHub Issue Triage Recipe (Incremental)
+# GitHub Issue Triage Recipe (Incremental, Content-Aware)
 # =============================================================================
 #
-# Automated workflow for triaging GitHub issues against merged PRs.
+# Automated workflow for triaging GitHub issues with content-aware classification.
+# Reads each issue to understand its nature (bug, feature request, blocked,
+# stale) and responds appropriately — investigating code for bugs, noting scope
+# for feature requests, tracking dependencies for blocked issues, and flagging
+# stale ones for cleanup.
+#
 # Supports incremental operation — detects existing triage findings posted
 # to issues and skips re-investigation unless explicitly requested.
 #
-# Fetches open issues (with comments) and merged PRs, cross-references them,
-# detects prior triage findings via hidden HTML markers, investigates the
-# current code state per issue, verifies PR fixes by reading actual diffs,
-# cross-validates all findings with a second LLM provider, posts findings
-# as comments to GitHub issues, and compiles everything into a structured
-# triage report.
+# Fetches open issues (with comments), merged PRs, and repo labels;
+# cross-references them; detects prior triage findings via hidden HTML markers;
+# classifies issues by content (not existing labels); investigates code state
+# for bugs; verifies PR fixes by reading actual diffs; suggests and applies
+# labels; cross-validates all findings with a second LLM provider; posts
+# findings as comments to GitHub issues; and compiles everything into a
+# structured triage report grouped by category.
 #
 # Requirements:
 #   - GitHub CLI (gh) installed and authenticated with repo access
@@ -32,22 +38,45 @@
 #   - report_path (optional): Output file path (default: <repo_path>/triage-reports/triage-report-<timestamp>.md)
 #
 # Stages:
-#   1. discovery       — Fetch issues (with comments)/PRs, detect existing findings,
-#                         cross-reference, produce initial triage
+#   1. discovery       — Fetch issues (with comments)/PRs/labels, detect existing
+#                         findings, cross-reference, produce initial triage
 #                         [APPROVAL GATE: user selects which issues to investigate;
 #                          default "new" skips previously investigated issues]
-#   2. investigation   — Deep code investigation, PR diff verification, cross-review
+#   2. investigation   — Content-aware classification, deep code investigation for
+#                         bugs, PR diff verification, auto-label suggestions,
+#                         cross-review with category/verdict validation
 #                         [APPROVAL GATE: user reviews findings before proceeding]
-#   3. post-findings   — Format triage findings as GitHub issue comments
-#                         [APPROVAL GATE: user reviews comments before posting]
-#   4. report          — Post finding comments to GitHub, synthesize findings,
-#                         write triage report to file
+#   3. post-findings   — Format triage findings as GitHub issue comments, prepare
+#                         label changes for review
+#                         [APPROVAL GATE: user reviews comments + labels before posting]
+#   4. report          — Post finding comments, apply labels (add-only),
+#                         synthesize findings grouped by category, write report
+#
+# Issue categories (determined by content, not existing labels):
+#   - bug:             Describes broken, wrong, or unexpected behavior
+#   - feature_request: Requests new functionality that doesn't exist
+#   - blocked:         Blocked on external/upstream work
+#   - stale:           May no longer be relevant
+#
+# Verdict set:
+#   - SOLVED:           Bug is fixed in current code
+#   - PARTIALLY_SOLVED: Some aspects of a bug are fixed, others remain
+#   - UNSOLVED:         Bug still exists as described
+#   - FEATURE_REQUEST:  Issue is requesting new functionality
+#   - BLOCKED_UPSTREAM: Depends on work in another repo/project
+#   - STALE:            Issue may no longer be relevant
 #
 # Incremental behavior:
 #   Issues with an existing <!-- amplifier-triage-finding --> comment are detected
 #   during discovery. By default ("new"), they are skipped during investigation.
 #   Users can override with "all" to re-investigate, or specify issue numbers.
 #   Finding comments are only posted for issues that don't already have one.
+#
+# Auto-labeling:
+#   Available repo labels are fetched during discovery. Investigation suggests
+#   labels based on content analysis. Labels are applied (add-only, never
+#   removed) during the post-findings stage after user approval. Only labels
+#   that already exist on the repository are applied.
 #
 # Typical runtime: 15-50 minutes depending on issue count
 #
@@ -59,6 +88,36 @@
 # =============================================================================
 # CHANGELOG
 # =============================================================================
+#
+# v1.2.0 (2026-03-06):
+#   - NEW FEATURE: Content-aware issue classification
+#     * investigate-code-state reads issue content and classifies by type
+#       instead of assuming all issues are bugs
+#     * New categories: bug, feature_request, blocked, stale
+#     * Expanded verdict set: SOLVED, PARTIALLY_SOLVED, UNSOLVED,
+#       FEATURE_REQUEST, BLOCKED_UPSTREAM, STALE
+#     * THE KEY INSIGHT: Mislabeled issues are detected and reclassified
+#       based on actual content — a "bug" label that's really a feature
+#       request skips code investigation; an "enhancement" label describing
+#       broken behavior gets full bug investigation
+#   - NEW FEATURE: Auto-labeling with suggested labels
+#     * Discovery stage fetches available repo labels via `gh label list`
+#     * Investigation suggests labels based on content analysis
+#     * Post-findings stage applies missing labels (add-only, never removes)
+#     * Only applies labels that already exist on the repository
+#   - IMPROVEMENT: Cross-review validates category/verdict consistency
+#     * Detects contradictions (e.g., category "bug" with verdict "FEATURE_REQUEST")
+#     * Reviews whether Agent A correctly classified issue content
+#   - IMPROVEMENT: Report groups issues by category then verdict
+#     * Bugs: SOLVED / PARTIALLY_SOLVED / UNSOLVED sections
+#     * Feature Requests: with scope and effort notes
+#     * Blocked: with dependency details
+#     * Stale: candidates for closing
+#   - IMPROVEMENT: Finding comments include category and suggested labels
+#     * Category shown in comment header
+#     * Suggested labels listed when different from current labels
+#     * Feature request comments include scope/effort estimates
+#     * Blocked issue comments note their dependencies
 #
 # v1.1.0 (2026-03-05):
 #   - NEW FEATURE: Incremental triage with existing finding detection
@@ -96,9 +155,9 @@
 # =============================================================================
 
 name: "github-issue-triage"
-description: "Incremental GitHub issue triage: detects existing findings to avoid re-investigation, cross-references open issues against merged PRs, investigates code state in batches, verifies PR fixes via diffs, cross-validates across providers, posts findings as issue comments, and generates a structured report"
-version: "1.1.0"
-tags: ["github", "triage", "issues", "cross-validation", "report", "incremental"]
+description: "Incremental, content-aware GitHub issue triage: classifies issues by content (bug/feature/blocked/stale), investigates code state for bugs, verifies PR fixes via diffs, suggests and applies labels, cross-validates across providers, posts categorized findings as issue comments, and generates a structured report grouped by category"
+version: "1.2.0"
+tags: ["github", "triage", "issues", "cross-validation", "report", "incremental", "labeling"]
 
 context:
   repo_path: "."          # Local path to the cloned git repo (default: current directory)
@@ -121,8 +180,8 @@ rate_limiting:
 stages:
   # ===========================================================================
   # STAGE 1: DISCOVERY
-  # Fetch issues (with comments) and PRs from GitHub, detect existing findings,
-  # cross-reference, produce initial triage.
+  # Fetch issues (with comments), PRs, and repo labels from GitHub, detect
+  # existing findings, cross-reference, produce initial triage.
   # ===========================================================================
   - name: "discovery"
     steps:
@@ -172,6 +231,15 @@ stages:
         parse_json: true
         timeout: 120
 
+      # --- Fetch available repository labels (for auto-labeling) ---
+      - id: "fetch-repo-labels"
+        type: "bash"
+        command: |
+          set -euo pipefail
+          gh label list --repo "{{repo_name}}" --json name --jq '.[].name' --limit 100
+        output: "repo_labels"
+        timeout: 60
+
       # --- Cross-reference issues against merged PRs + detect existing findings ---
       - id: "cross-reference"
         agent: "foundation:zen-architect"
@@ -201,8 +269,9 @@ stages:
           `body` starts with `<!-- amplifier-triage-finding -->` on the **first line**.
 
           - If found: set `has_existing_finding` to `true`, extract the verdict
-            (SOLVED / PARTIALLY_SOLVED / UNSOLVED) from the comment body, and include
-            the full comment body as `existing_finding_text`.
+            (SOLVED / PARTIALLY_SOLVED / UNSOLVED / FEATURE_REQUEST / BLOCKED_UPSTREAM / STALE)
+            from the comment body, and include the full comment body as
+            `existing_finding_text`.
           - If the `comments` array is empty or no comment has the marker:
             set `has_existing_finding` to `false`, and set `existing_finding_verdict`
             and `existing_finding_text` to `null`.
@@ -262,7 +331,8 @@ stages:
 
   # ===========================================================================
   # STAGE 2: INVESTIGATION
-  # Deep code investigation, PR diff verification, cross-provider review.
+  # Content-aware classification, deep code investigation for bugs, PR diff
+  # verification, auto-label suggestions, cross-provider review.
   # ===========================================================================
   - name: "investigation"
     steps:
@@ -354,7 +424,7 @@ stages:
         parse_json: true
         timeout: 60
 
-      # --- Investigate code state per batch (Provider A: Anthropic preferred) ---
+      # --- Content-aware investigation per batch (Provider A: Anthropic preferred) ---
       - id: "investigate-code-state"
         foreach: "{{plan.batches}}"
         as: "issue_batch"
@@ -370,6 +440,9 @@ stages:
           You are investigating open GitHub issues for **{{repo_name}}**.
           The repository is cloned at: {{repo_path}}
 
+          ## Available Repository Labels
+          {{repo_labels}}
+
           ## Issues to Investigate (Batch)
 
           {{issue_batch}}
@@ -378,14 +451,54 @@ stages:
 
           For EACH issue in this batch:
 
-          1. **Read the issue** carefully — understand the reported problem
-          2. **Identify relevant source files** from the issue description, error messages, and file references
-          3. **Read the source code** in those files to determine current state
-          4. **Check recent git history**: `git log --oneline -10 -- <file>`
-          5. **Determine your verdict:**
-             - **SOLVED** — The issue is fixed in the current codebase
-             - **PARTIALLY_SOLVED** — Some aspects addressed, others remain
-             - **UNSOLVED** — The issue still exists as described
+          ### Step 1: Read and Classify
+
+          Read the issue carefully — its title, body, and any discussion — and
+          determine what KIND of issue it actually is based on its **content**:
+
+          - **bug** — Describes broken, wrong, or unexpected behavior
+          - **feature_request** — Requests new functionality that doesn't exist yet
+          - **blocked** — Blocked on external/upstream work in another repo or project
+          - **stale** — Issue may no longer be relevant (old, no activity, describes outdated state)
+
+          **You are not pre-classifying — you are reading the issue, understanding
+          it, and responding appropriately. A mislabeled "enhancement" that describes
+          broken behavior should be investigated as a bug. A mislabeled "bug" that's
+          actually requesting new functionality should be noted as a feature request
+          without wasting time on code investigation.**
+
+          ### Step 2: Take Appropriate Action Based on Category
+
+          **If bug:**
+          1. Identify relevant source files from the issue description, error messages, file references
+          2. Read the source code in those files to determine current state
+          3. Check recent git history: `git log --oneline -10 -- <file>`
+          4. Determine verdict: **SOLVED**, **PARTIALLY_SOLVED**, or **UNSOLVED**
+
+          **If feature_request:**
+          1. Note what functionality is being requested
+          2. Briefly describe what would be needed (scope, affected areas, effort estimate)
+          3. Verdict: **FEATURE_REQUEST**
+          4. Skip code investigation — do not waste time verifying code state
+
+          **If blocked:**
+          1. Identify what it's blocked on (external dependency, upstream issue, etc.)
+          2. Note the blocking dependency and any tracking links
+          3. Verdict: **BLOCKED_UPSTREAM**
+
+          **If stale:**
+          1. Note why the issue appears stale (age, no activity, describes outdated state)
+          2. Verdict: **STALE**
+          3. Flag as candidate for closing
+
+          ### Step 3: Suggest Labels
+
+          Based on your content analysis, suggest what labels the issue SHOULD have.
+          Only suggest labels from the "Available Repository Labels" list above.
+          Compare your suggestions against the issue's current labels and note any
+          that should be added.
+
+          ## Output Format
 
           Return ONLY a JSON array (no markdown fences):
 
@@ -393,12 +506,31 @@ stages:
             {
               "issue_number": 123,
               "issue_title": "Title",
-              "verdict": "SOLVED",
+              "category": "bug",
+              "verdict": "UNSOLVED",
               "files_examined": ["src/foo.py:45-67", "src/bar.py"],
               "evidence": "Specific evidence supporting your verdict",
-              "remaining_work": ""
+              "remaining_work": "Description of remaining work, or empty string if none",
+              "suggested_labels": ["bug", "area/auth"]
             }
           ]
+
+          **Field notes by category:**
+          - **bug**: `files_examined` and `evidence` are required; `remaining_work`
+            describes what's left (empty string if SOLVED)
+          - **feature_request**: `files_examined` can be empty; `evidence` describes
+            what's requested and scope/effort estimate; `remaining_work` describes
+            what would need to be built
+          - **blocked**: `files_examined` can be empty; `evidence` describes the
+            blocking dependency; `remaining_work` describes what's needed to unblock
+          - **stale**: `files_examined` can be empty; `evidence` explains why it's
+            stale; `remaining_work` is empty or describes cleanup needed
+
+          **Valid category → verdict combinations:**
+          - category "bug" → SOLVED, PARTIALLY_SOLVED, or UNSOLVED
+          - category "feature_request" → FEATURE_REQUEST
+          - category "blocked" → BLOCKED_UPSTREAM
+          - category "stale" → STALE
         collect: "code_investigations"
         parse_json: true
         timeout: 900
@@ -486,13 +618,32 @@ stages:
           ## Review Criteria
 
           For each finding, evaluate:
-          1. Is the verdict supported by cited evidence (specific files/lines)?
-          2. Is the evidence sufficient, or could the verdict be wrong?
-          3. Are there logical errors, contradictions, or unsupported claims?
-          4. Were the right files examined, or could the issue be elsewhere?
-          5. For PR verifications — did Agent A actually read the diff?
 
-          If you DISAGREE, you may read source code at {{repo_path}} to verify.
+          1. **Evidence quality:** Is the verdict supported by cited evidence
+             (specific files/lines)? Is the evidence sufficient, or could the
+             verdict be wrong?
+          2. **Logical consistency:** Are there logical errors, contradictions,
+             or unsupported claims?
+          3. **Coverage:** Were the right files examined, or could the issue be
+             elsewhere?
+          4. **PR verification:** For PR verifications — did Agent A actually
+             read the diff?
+          5. **Category correctness:** Did Agent A correctly classify the issue
+             content? Does the issue actually describe what Agent A says it does?
+             A bug misclassified as a feature request (or vice versa) is a
+             critical error.
+          6. **Category/verdict consistency:** Is the category/verdict combination
+             valid?
+             - category "bug" → verdict must be SOLVED, PARTIALLY_SOLVED, or UNSOLVED
+             - category "feature_request" → verdict must be FEATURE_REQUEST
+             - category "blocked" → verdict must be BLOCKED_UPSTREAM
+             - category "stale" → verdict must be STALE
+             - Flag any contradictions (e.g., category "bug" with verdict
+               "FEATURE_REQUEST" means either the category or verdict is wrong)
+
+          If you DISAGREE with a finding, you may read source code at {{repo_path}}
+          to verify. If you disagree with a category, explain why based on the
+          issue content.
 
           Return ONLY a JSON object (no markdown fences):
 
@@ -500,17 +651,28 @@ stages:
             "reviews": [
               {
                 "issue_number": 123,
+                "original_category": "bug",
                 "original_verdict": "SOLVED",
                 "reviewer_verdict": "AGREE",
+                "revised_category": "bug",
                 "revised_verdict": "SOLVED",
+                "category_verdict_consistent": true,
                 "confidence": 8,
                 "reasoning": "Evidence is strong — file was clearly modified to fix the bug"
               }
             ],
             "summary": "Overall quality assessment of Agent A's findings",
             "agreement_rate": "85%",
-            "critical_disagreements": []
+            "critical_disagreements": [],
+            "category_issues": []
           }
+
+          **Notes:**
+          - `reviewer_verdict`: "AGREE" if you agree, or the corrected verdict if not
+          - `revised_category`: same as original if you agree, or corrected category
+          - `revised_verdict`: the final verdict after your review
+          - `category_verdict_consistent`: false if the combination is invalid
+          - `category_issues`: list any cases where Agent A misclassified content
         output: "cross_review"
         parse_json: true
         timeout: 900
@@ -535,7 +697,8 @@ stages:
 
   # ===========================================================================
   # STAGE 3: POST-FINDINGS
-  # Format triage findings as GitHub issue comments for review before posting.
+  # Format triage findings as GitHub issue comments with category-specific
+  # content and label suggestions for review before posting.
   # ===========================================================================
   - name: "post-findings"
     steps:
@@ -557,8 +720,11 @@ stages:
           ## Code Investigation Results
           {{code_investigations}}
 
-          ## Initial Triage Data (includes has_existing_finding flags)
+          ## Initial Triage Data (includes current labels and has_existing_finding flags)
           {{initial_triage}}
+
+          ## Available Repository Labels
+          {{repo_labels}}
 
           ## Instructions
 
@@ -568,41 +734,110 @@ stages:
           **SKIP** any issue where `has_existing_finding` is `true` — do NOT generate
           a comment for it (it already has one posted to GitHub).
 
-          Each comment body MUST follow this **exact** structure (pay close attention
-          to the first line):
+          For each comment, use the **cross-reviewed** category and verdict (from
+          `revised_category` and `revised_verdict` in the cross-review data). If the
+          cross-review revised the category or verdict, use the revised values.
 
-          Line 1: <!-- amplifier-triage-finding -->
-          Line 2: ## Triage Investigation — YYYY-MM-DD
-          Line 3: (blank)
-          Line 4: **Verdict:** SOLVED / PARTIALLY_SOLVED / UNSOLVED
-          Line 5: **Confidence:** X/10
-          Line 6: (blank)
-          Line 7: ### Evidence
-          Lines:  - **Files examined:** list of files and line ranges
-          Lines:  - **Findings:** specific evidence supporting the verdict
-          Line:   (blank)
-          Line:   ### Remaining Work
-          Lines:  Description of remaining work, or "None — issue appears fully resolved."
-          Line:   (blank)
-          Line:   ---
-          Line:   *Automated triage by amplifier-distro issue triage recipe*
+          ### Comment Format by Category
 
-          **CRITICAL RULES:**
-          - The `<!-- amplifier-triage-finding -->` marker MUST be the VERY FIRST
-            line of the comment body. No blank lines, no whitespace before it.
-          - Use today's date (YYYY-MM-DD format) for the investigation header.
-          - Pull verdicts and confidence from the cross-review data (use the
-            `revised_verdict` and `confidence` fields).
-          - Pull evidence details from the code investigation results.
+          Each comment body MUST start with the hidden marker on line 1, then follow
+          the category-specific format below.
+
+          **ALL categories share this header:**
+
+          ```
+          <!-- amplifier-triage-finding -->
+          ## Triage Investigation — YYYY-MM-DD
+
+          **Category:** Bug / Feature Request / Blocked / Stale
+          **Verdict:** SOLVED / PARTIALLY_SOLVED / UNSOLVED / FEATURE_REQUEST / BLOCKED_UPSTREAM / STALE
+          **Confidence:** X/10
+          ```
+
+          **For bugs (SOLVED / PARTIALLY_SOLVED / UNSOLVED):**
+          ```
+          ### Evidence
+          - **Files examined:** list of files and line ranges
+          - **Findings:** specific evidence supporting the verdict
+
+          ### Remaining Work
+          Description of remaining work, or "None — issue appears fully resolved."
+          ```
+
+          **For feature requests (FEATURE_REQUEST):**
+          ```
+          ### What's Requested
+          Description of the requested functionality
+
+          ### Scope & Effort
+          - Estimated scope: Small / Medium / Large
+          - Key areas affected: list of modules/files
+          - Dependencies: any prerequisites or blockers
+          ```
+
+          **For blocked issues (BLOCKED_UPSTREAM):**
+          ```
+          ### Blocked On
+          Description of the blocking dependency/upstream work
+
+          ### Suggested Action
+          What could be done to unblock or monitor progress
+          ```
+
+          **For stale issues (STALE):**
+          ```
+          ### Why Stale
+          Reasoning for stale classification
+
+          ### Recommendation
+          Close / keep / update recommendation with justification
+          ```
+
+          **ALL categories end with this footer (include Suggested Labels section
+          ONLY if the suggested labels differ from the issue's current labels):**
+
+          ```
+          ### Suggested Labels
+          `label1`, `label2` *(currently missing: `label3`)*
+
+          ---
+          *Automated triage by amplifier-distro issue triage recipe*
+          ```
+
+          If suggested labels match current labels exactly, omit the
+          "Suggested Labels" section entirely and go straight to the `---` footer.
+
+          ### Label Computation
+
+          For each issue:
+          1. Get `suggested_labels` from the code investigation results
+          2. Get current `labels` from the initial triage data
+          3. Filter suggested labels to ONLY those that appear in the
+             "Available Repository Labels" list above
+          4. Compute `labels_to_add`: labels in suggested that are NOT in current
+             (case-insensitive comparison on label names)
+
+          ### Output Format
 
           Return ONLY a JSON array (no markdown fences, no commentary):
 
           [
             {
               "issue_number": 123,
-              "comment_body": "<!-- amplifier-triage-finding -->\n## Triage Investigation — 2026-03-05\n\n**Verdict:** SOLVED\n**Confidence:** 8/10\n\n### Evidence\n- **Files examined:** src/auth.py:45-67\n- **Findings:** The timeout logic was rewritten in commit abc123\n\n### Remaining Work\nNone — issue appears fully resolved.\n\n---\n*Automated triage by amplifier-distro issue triage recipe*"
+              "comment_body": "<!-- amplifier-triage-finding -->\n## Triage Investigation — 2026-03-06\n\n**Category:** Bug\n**Verdict:** SOLVED\n**Confidence:** 8/10\n\n### Evidence\n...\n\n---\n*Automated triage by amplifier-distro issue triage recipe*",
+              "labels_to_add": ["area/auth"]
             }
           ]
+
+          **CRITICAL RULES:**
+          - The `<!-- amplifier-triage-finding -->` marker MUST be the VERY FIRST
+            line of the comment body. No blank lines, no whitespace before it.
+          - Use today's date (YYYY-MM-DD format) for the investigation header.
+          - Use revised_category / revised_verdict / confidence from cross-review.
+          - `labels_to_add` must ONLY contain labels that: (a) exist in the repo's
+            available labels AND (b) are not already on the issue. Empty array if
+            no labels to add.
+          - Category display names in comments: "Bug", "Feature Request", "Blocked", "Stale"
 
           If ALL investigated issues already have existing findings (nothing to
           post), return an empty array: []
@@ -613,16 +848,18 @@ stages:
     approval:
       required: true
       prompt: |
-        ## Finding Comments Ready for Review
+        ## Finding Comments & Label Changes Ready for Review
 
-        The following comments will be posted to GitHub issues in **{{repo_name}}**:
+        The following comments will be posted to GitHub issues in **{{repo_name}}**,
+        and the listed labels will be added:
 
         {{finding_comments}}
 
         ---
         Comments will NOT be posted for issues that already have triage findings.
+        Labels are ADD-ONLY — no existing labels will be removed.
 
-        **Approve** to post these comments to the respective GitHub issues.
+        **Approve** to post these comments and apply labels to the respective GitHub issues.
         **Deny** to skip posting (findings are still available in the session and
         will appear in the report regardless).
       timeout: 0
@@ -630,12 +867,12 @@ stages:
 
   # ===========================================================================
   # STAGE 4: REPORT
-  # Post finding comments to GitHub, synthesize all findings into a structured
-  # report, and write to file.
+  # Post finding comments to GitHub, apply labels, synthesize all findings
+  # into a structured report grouped by category, and write to file.
   # ===========================================================================
   - name: "report"
     steps:
-      # --- Post finding comments to GitHub issues ---
+      # --- Post finding comments to GitHub issues and apply labels ---
       - id: "post-finding-comments"
         type: "bash"
         command: |
@@ -654,21 +891,24 @@ stages:
 
           if [ "$count" -eq 0 ]; then
             echo "No comments to post (all investigated issues already have findings)."
-            jq -n '{posted: 0, failed: 0, total: 0}'
+            jq -n '{posted: 0, failed: 0, total: 0, labels_applied: 0, labels_failed: 0}'
             exit 0
           fi
 
           echo "Posting $count triage finding comment(s) to {{repo_name}}..."
 
-          # Post each comment using --body-file for safe content handling
+          # Post each comment and apply labels
           posted=0
           failed=0
+          labels_applied=0
+          labels_failed=0
           _body_tmp=$(mktemp)
 
           for i in $(seq 0 $((count - 1))); do
             issue_num=$(echo "$comments" | jq -r ".[$i].issue_number")
             echo "$comments" | jq -r ".[$i].comment_body" > "$_body_tmp"
 
+            # Post finding comment
             echo "  Posting finding to issue #${issue_num}..."
             if gh issue comment "$issue_num" --repo "{{repo_name}}" --body-file "$_body_tmp"; then
               posted=$((posted + 1))
@@ -678,7 +918,22 @@ stages:
               echo "    Failed to post to #${issue_num}" >&2
             fi
 
-            # Rate limit between posts
+            # Apply suggested labels (add-only, one at a time for safety)
+            label_count=$(echo "$comments" | jq ".[$i].labels_to_add // [] | length")
+            if [ "$label_count" -gt 0 ]; then
+              for j in $(seq 0 $((label_count - 1))); do
+                label=$(echo "$comments" | jq -r ".[$i].labels_to_add[$j]")
+                echo "    Adding label '$label' to #${issue_num}..."
+                if gh issue edit "$issue_num" --repo "{{repo_name}}" --add-label "$label" 2>/dev/null; then
+                  labels_applied=$((labels_applied + 1))
+                else
+                  labels_failed=$((labels_failed + 1))
+                  echo "    Failed to add label '$label' to #${issue_num}" >&2
+                fi
+              done
+            fi
+
+            # Rate limit between issues
             sleep 1
           done
 
@@ -686,19 +941,22 @@ stages:
 
           echo ""
           echo "Results: $posted posted, $failed failed out of $count total"
+          echo "Labels: $labels_applied applied, $labels_failed failed"
 
           # Output summary as JSON
           jq -n \
             --argjson posted "$posted" \
             --argjson failed "$failed" \
             --argjson total "$count" \
-            '{posted: $posted, failed: $failed, total: $total}'
+            --argjson labels_applied "$labels_applied" \
+            --argjson labels_failed "$labels_failed" \
+            '{posted: $posted, failed: $failed, total: $total, labels_applied: $labels_applied, labels_failed: $labels_failed}'
         output: "post_results"
         parse_json: true
         timeout: 300
         on_error: "continue"
 
-      # --- Synthesize all findings into a markdown report ---
+      # --- Synthesize all findings into a markdown report grouped by category ---
       - id: "synthesize"
         agent: "foundation:zen-architect"
         mode: "ARCHITECT"
@@ -732,26 +990,49 @@ stages:
 
           ## Report Structure
 
-          Generate a complete markdown report with these sections:
+          Generate a complete markdown report with these sections. **Group issues
+          by category first, then by verdict within each category.**
 
           # GitHub Issue Triage Report — {{repo_name}}
           *Generated: [today's date] | Focus: {{focus}} | Issues analyzed: {{plan.total_issues}} | Skipped (existing findings): {{plan.skipped_count}}*
 
           ## Executive Summary
-          - Total issues analyzed, breakdown by verdict (SOLVED / PARTIALLY SOLVED / UNSOLVED)
+          - Total issues analyzed, breakdown by category:
+            - Bugs: X (Y solved, Z partially solved, W unsolved)
+            - Feature Requests: X
+            - Blocked: X
+            - Stale: X
           - Issues skipped due to existing findings (count and reason)
           - Cross-review agreement rate and confidence levels
           - Finding comments posted to GitHub (count and status)
+          - Labels applied (count and status)
           - Key findings and surprises
+          - Any category reclassifications (mislabeled issues)
 
-          ## Issues to Close (SOLVED)
+          ## Bugs
+
+          ### Ready to Close (SOLVED)
           Table: Issue # | Title | Evidence | Linked PRs | Confidence
 
-          ## Issues Needing Follow-Up (PARTIALLY SOLVED)
+          ### Needs Follow-Up (PARTIALLY_SOLVED)
           Per issue: what was resolved, what remains, suggested next steps
 
-          ## Issues Needing Attention (UNSOLVED)
+          ### Needs Attention (UNSOLVED)
           Per issue: current code state, root cause analysis, proposed solution, priority
+
+          If no bugs were found, write: "No bug reports found in this triage run."
+
+          ## Feature Requests
+          Per issue: what's requested, scope/effort estimate, affected areas, suggested priority
+          If no feature requests, write: "No feature requests found in this triage run."
+
+          ## Blocked Issues
+          Per issue: what it's blocked on, dependency details, suggested action to unblock
+          If no blocked issues, write: "No blocked issues found in this triage run."
+
+          ## Stale Issues
+          Per issue: why it appears stale, recommendation (close/keep/update), justification
+          If no stale issues, write: "No stale issues found in this triage run."
 
           ## Previously Investigated (Skipped)
           For each issue in the "Previously Investigated Issues (Skipped)" data:
@@ -761,13 +1042,23 @@ stages:
           If no issues were skipped, write: "All issues were investigated in this run."
 
           ## Disputed Findings
-          Where Agent A and the Reviewer disagreed — both perspectives, recommended resolution
+          Where Agent A and the Reviewer disagreed — both perspectives, recommended resolution.
+          Include any category reclassifications (where the reviewer changed the category).
+
+          ## Label Changes
+          Summary of labels suggested and applied:
+          - Labels added (count, which issues)
+          - Labels that were suggested but already present
+          - Any notable mismatches between existing and suggested labels
 
           ## Recommendations
-          1. Issues safe to close (with justification)
-          2. Issues to prioritize (with reasoning)
-          3. Previously investigated issues worth re-examining (if any)
-          4. Suggested next actions for the team
+          1. Bugs safe to close (with justification)
+          2. Bugs to prioritize (with reasoning)
+          3. Feature requests to consider (with scope notes)
+          4. Blocked issues: actions to unblock
+          5. Stale issues recommended for closing
+          6. Previously investigated issues worth re-examining (if any)
+          7. Suggested next actions for the team
 
           ---
 
