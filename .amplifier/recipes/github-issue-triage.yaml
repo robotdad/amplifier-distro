@@ -26,7 +26,7 @@
 # Context variables:
 #   - repo_path (required):  Local filesystem path to the cloned git repository
 #   - repo_name (required):  GitHub org/repo identifier (e.g., "microsoft/amplifier")
-#   - focus (optional):      Label filter — "bugs", "enhancements", or "all" (default: "bugs")
+#   - focus (optional):      Label filter — "bugs", "enhancements", or "all" (default: "all")
 #   - max_issues (optional): Max issues to fetch; empty string = up to 200 (default: "")
 #   - batch_size (optional): Issues per investigation batch (default: "5")
 #   - report_path (optional): Output file path (default: <repo_path>/triage-reports/triage-report-<timestamp>.md)
@@ -103,7 +103,7 @@ tags: ["github", "triage", "issues", "cross-validation", "report", "incremental"
 context:
   repo_path: "."          # Local path to the cloned git repo (default: current directory)
   repo_name: "microsoft/amplifier-distro"  # GitHub org/repo
-  focus: "bugs"           # Optional: "bugs", "enhancements", or "all"
+  focus: "all"            # Optional: "bugs", "enhancements", or "all"
   max_issues: ""          # Optional: max issues to fetch ("" = up to 200)
   batch_size: "5"         # Optional: issues per investigation batch (5-10 recommended)
   report_path: ""         # Optional: output path (default: <repo_path>/triage-reports/triage-report-<ts>.md)
