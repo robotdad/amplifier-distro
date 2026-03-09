@@ -744,7 +744,7 @@ async function submitStep() {
       return;
   }
 
-  await api('POST', '/steps/' + stepId, body);
+  await api('POST', '/setup/steps/' + stepId, body);
   goTo(state.step + 1);
 }
 
@@ -1062,7 +1062,7 @@ async function runVerification() {
   state.verifyRunning = true;
   render();
 
-  const data = await api('POST', '/steps/verify', {});
+  const data = await api('POST', '/setup/steps/verify', {});
   if (data && !data.error) {
     state.checks = [
       { name: 'Workspace directory', passed: !!data.workspace_root, message: data.workspace_root || 'Not set' },
@@ -1118,7 +1118,7 @@ function bindEvents() {
       state.cliInstalling = true;
       state.cliError = null;
       render();
-      const res = await api('POST', '/steps/interfaces', { install_cli: true });
+      const res = await api('POST', '/setup/steps/interfaces', { install_cli: true });
       state.cliInstalling = false;
       if (res) {
         state.cliInstalled = !!res.cli_installed;
@@ -1136,7 +1136,7 @@ function bindEvents() {
       state.tuiInstalling = true;
       state.tuiError = null;
       render();
-      const res = await api('POST', '/steps/interfaces', { install_tui: true });
+      const res = await api('POST', '/setup/steps/interfaces', { install_tui: true });
       state.tuiInstalling = false;
       if (res) {
         state.tuiInstalled = !!res.tui_installed;
@@ -1180,7 +1180,7 @@ function bindEvents() {
       state.savingProvider = pid;
       state.providerSaveResult = null;
       render();
-      const res = await api('POST', '/steps/provider', { provider: pid });
+      const res = await api('POST', '/setup/steps/provider', { provider: pid });
       state.savingProvider = null;
       if (res && !res.error && res.verified) {
         const prov = state.providers.find(p => p.id === (res.provider || pid));
@@ -1208,7 +1208,7 @@ function bindEvents() {
       state.savingProvider = pid;
       state.providerSaveResult = null;
       render();
-      const res = await api('POST', '/steps/provider', {
+      const res = await api('POST', '/setup/steps/provider', {
         provider: pid,
         api_key: state.providerKeyInput,
       });

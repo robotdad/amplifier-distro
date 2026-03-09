@@ -3,3 +3,17 @@
 worktrees/
 .DS_Store
 triage-reports/
+.pytest_cache/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.egg
+*.log
+*.bak
+*.tmp
+*.swp
+*.swo

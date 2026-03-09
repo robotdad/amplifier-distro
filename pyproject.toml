@@ -1,24 +1,29 @@
-# amplifier-experience/pyproject.toml
+# amplifier-distro/pyproject.toml
 [project]
-name = "amplifier-experience"
+name = "amplifier-distro"
 version = "0.1.0"
-description = "Amplifier chat experience — amplifierd + chat plugin"
+description = "Amplifier distro — amplifierd + distro plugin"
 requires-python = ">=3.12"
 dependencies = [
     "amplifierd @ git+https://github.com/microsoft/amplifierd@main",
+    "amplifierd-plugin-distro @ git+https://github.com/microsoft/amplifierd@main#subdirectory=amplifierd-plugins/distro",
     "amplifierd-plugin-chat @ git+https://github.com/payneio/amplifierd-plugin-chat@main",
 ]
 
 [project.scripts]
-amplifierd-chat = "amplifierd.cli:main"
+amp-distro = "amplifierd.cli:main"
 
 # Local dev overrides: use sibling checkouts instead of git URLs
-# [tool.uv.sources]
+[tool.uv.sources]
 # amplifierd = { path = "../amplifierd", editable = true }
+amplifierd-plugin-distro = { path = "./amplifierd-plugins/amplifierd-plugin-distro", editable = true }
 # amplifierd-plugin-chat = { path = "../amplifierd-plugin-chat", editable = true }
 
 [tool.hatch.metadata]
 allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/amplifier_distro"]
 
 [build-system]
 requires = ["hatchling"]
