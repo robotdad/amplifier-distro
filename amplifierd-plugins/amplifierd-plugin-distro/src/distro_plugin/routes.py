@@ -19,7 +19,7 @@ from typing import Any, TypedDict
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from starlette.responses import FileResponse, HTMLResponse
+from starlette.responses import FileResponse, HTMLResponse, RedirectResponse
 
 from distro_plugin.config import DistroPluginSettings
 from distro_plugin.distro_settings import (
@@ -583,6 +583,22 @@ def create_routes() -> APIRouter:
     # ------------------------------------------------------------------
     # Static HTML pages
     # ------------------------------------------------------------------
+
+    @router.get("/", response_model=None)
+    async def get_dashboard(request: Request) -> HTMLResponse | RedirectResponse:
+        """Serve the dashboard landing page, or redirect to setup if unconfigured."""
+        settings = _get_settings(request)
+        if compute_phase(settings) == "unconfigured":
+            return RedirectResponse(url="/distro/setup")
+        html_path = _STATIC_DIR / "dashboard.html"
+        try:
+            content = html_path.read_text()
+            return HTMLResponse(content=content)
+        except OSError:
+            return HTMLResponse(
+                content="<h1>Dashboard not available</h1><p>Static files not found.</p>",
+                status_code=500,
+            )
 
     @router.get("/setup")
     async def get_setup_page(request: Request) -> HTMLResponse:

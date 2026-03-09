@@ -85,3 +85,52 @@ def test_settings_html_wizard_link():
     content = (_STATIC_DIR / "settings.html").read_text()
     assert 'href="/distro/setup"' in content
     assert 'href="/apps/install-wizard/"' not in content
+
+
+# ---------------------------------------------------------------------------
+# GET /distro/ dashboard route
+# ---------------------------------------------------------------------------
+
+
+def test_get_distro_root_unconfigured_redirects(client):
+    """GET /distro/ with no overlay (unconfigured) redirects to /distro/setup."""
+    # Fresh tmp_path has no overlay bundle → compute_phase returns "unconfigured"
+    resp = client.get("/distro/", follow_redirects=False)
+    assert resp.status_code in (301, 302, 307, 308)
+    assert "/distro/setup" in resp.headers["location"]
+
+
+def test_get_distro_root_configured_serves_dashboard(client, settings):
+    """GET /distro/ when configured (overlay exists) serves dashboard.html with 200."""
+    # Bootstrap overlay so compute_phase returns "detected" (not "unconfigured")
+    overlay_path = settings.distro_home / "bundle" / "bundle.yaml"
+    overlay_path.parent.mkdir(parents=True, exist_ok=True)
+    overlay_path.write_text("bundle: {name: test}\n")
+
+    resp = client.get("/distro/")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers.get("content-type", "")
+    assert "amplifier" in resp.text.lower()
+
+
+def test_dashboard_html_uses_updated_paths():
+    """dashboard.html must use /chat/ and /distro/settings, not the old /apps/ paths."""
+    content = (_STATIC_DIR / "dashboard.html").read_text()
+    assert 'href="/chat/"' in content
+    assert 'href="/distro/settings"' in content
+    assert 'href="/distro/setup"' in content
+    assert "/apps/settings/" not in content
+    assert "/apps/install-wizard/" not in content
+
+
+def test_static_styles_css_served(client):
+    """GET /static/styles.css returns 200."""
+    resp = client.get("/static/styles.css")
+    assert resp.status_code == 200
+
+
+def test_wizard_finish_buttons_go_to_distro():
+    """wizard.html finish/continue buttons must navigate to /distro/, not /."""
+    content = (_STATIC_DIR / "wizard.html").read_text()
+    assert "window.location.href='/distro/'" in content
+    assert "window.location.href='/'" not in content

@@ -1030,11 +1030,11 @@ function renderVerify() {
        </ul>`;
 
   const actionHtml = allPassed
-    ? `<button class="btn-success" onclick="window.location.href='/'">Setup Finished!</button>`
+    ? `<button class="btn-success" onclick="window.location.href='/distro/'">Setup Finished!</button>`
     : state.checks.length > 0
       ? `<div style="display:flex; gap:12px;">
            <button class="btn-secondary" onclick="runVerification()">Re-check</button>
-           <button class="btn-primary" onclick="window.location.href='/'">Continue to Dashboard</button>
+           <button class="btn-primary" onclick="window.location.href='/distro/'">Continue to Dashboard</button>
          </div>`
       : '';
 

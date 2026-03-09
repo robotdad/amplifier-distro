@@ -1,0 +1,314 @@
+/* ================================================================== */
+/*  Reset & Base                                                      */
+/* ================================================================== */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  height: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  height: 100%;
+  font-family: var(--font-body);
+  background: var(--canvas);
+  color: var(--ink);
+  line-height: 1.6;
+  display: flex;
+  justify-content: center;
+  padding: 48px 20px;
+  transition: background-color var(--duration-normal) var(--ease-out), color var(--duration-normal) var(--ease-out);
+}
+
+/* ================================================================== */
+/*  Custom Scrollbar                                                  */
+/* ================================================================== */
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--canvas-mist);
+  border-radius: 5px;
+  border: 2px solid var(--canvas);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-fog);
+}
+
+/* ================================================================== */
+/*  Container                                                         */
+/* ================================================================== */
+
+.container {
+  max-width: 720px;
+  width: 100%;
+  animation: fadeIn var(--duration-normal) var(--ease-out);
+}
+
+/* ================================================================== */
+/*  Wordmark                                                          */
+/* ================================================================== */
+
+.logo-wrapper {
+  text-align: center;
+  margin-bottom: 16px;
+  animation: logoEntrance 0.8s var(--ease-out);
+}
+
+/* ================================================================== */
+/*  Tagline                                                           */
+/* ================================================================== */
+
+.tagline {
+  color: var(--ink-slate);
+  font-size: 15px;
+  margin-bottom: 48px;
+  text-align: center;
+  animation: slideUp var(--duration-normal) var(--ease-out) 0.2s both;
+}
+
+/* ================================================================== */
+/*  Section Titles                                                    */
+/* ================================================================== */
+
+.section-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--ink-fog);
+  margin-bottom: 16px;
+  animation: slideUp var(--duration-normal) var(--ease-out) 0.3s both;
+}
+
+/* ================================================================== */
+/*  App Cards with Staggered Animation                                */
+/* ================================================================== */
+
+.apps-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 48px;
+}
+
+.app-card {
+  display: block;
+  padding: 24px;
+  background: var(--canvas-warm);
+  border: 1px solid var(--canvas-mist);
+  border-radius: var(--radius-card);
+  text-decoration: none;
+  color: var(--ink);
+  transition: all var(--duration-normal) var(--ease-out);
+  position: relative;
+  overflow: hidden;
+  animation: slideUp var(--duration-normal) var(--ease-out) both;
+  box-shadow: var(--shadow-lift);
+}
+
+/* Staggered animation delays */
+.app-card:nth-child(1) { animation-delay: 0.4s; }
+.app-card:nth-child(2) { animation-delay: 0.45s; }
+.app-card:nth-child(3) { animation-delay: 0.5s; }
+.app-card:nth-child(4) { animation-delay: 0.55s; }
+
+.app-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--signal-soft);
+  opacity: 0;
+  transition: opacity var(--duration-normal) var(--ease-out);
+  z-index: 0;
+}
+
+.app-card:hover {
+  border-color: var(--signal);
+  background: var(--canvas);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-elevate);
+}
+
+.app-card:hover::before {
+  opacity: 1;
+}
+
+.app-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.app-icon {
+  font-size: 32px;
+  margin-bottom: 12px;
+  display: block;
+  filter: grayscale(0.3);
+  transition: filter var(--duration-fast) var(--ease-out), transform var(--duration-fast) var(--ease-out);
+}
+
+.app-card:hover .app-icon {
+  filter: grayscale(0);
+  transform: scale(1.1);
+}
+
+.app-name {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  color: var(--ink);
+}
+
+.app-desc {
+  font-size: 13px;
+  color: var(--ink-slate);
+  line-height: 1.5;
+}
+
+/* ================================================================== */
+/*  Links Section                                                     */
+/* ================================================================== */
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 32px;
+  justify-content: center;
+  animation: slideUp var(--duration-normal) var(--ease-out) 0.6s both;
+}
+
+.links a {
+  color: var(--ink-slate);
+  text-decoration: none;
+  font-size: 14px;
+  transition: color var(--duration-fast) var(--ease-out);
+  position: relative;
+}
+
+.links a::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--signal);
+  transform: scaleX(0);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+.links a:hover {
+  color: var(--signal);
+}
+
+.links a:hover::after {
+  transform: scaleX(1);
+}
+
+.links .sep {
+  color: var(--canvas-mist);
+  user-select: none;
+}
+
+/* ================================================================== */
+/*  Footer                                                            */
+/* ================================================================== */
+
+.footer {
+  font-size: 12px;
+  color: var(--ink-fog);
+  text-align: center;
+  animation: fadeIn var(--duration-normal) var(--ease-out) 0.7s both;
+}
+
+.footer a {
+  color: var(--ink-fog);
+  text-decoration: none;
+  transition: color var(--duration-fast) var(--ease-out);
+}
+
+.footer a:hover {
+  color: var(--signal);
+}
+
+/* ================================================================== */
+/*  Animations                                                        */
+/* ================================================================== */
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes logoEntrance {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ================================================================== */
+/*  Accessibility - Reduce Motion                                     */
+/* ================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ================================================================== */
+/*  Mobile Responsiveness                                             */
+/* ================================================================== */
+
+@media (max-width: 640px) {
+  body {
+    padding: 32px 16px;
+  }
+
+  .apps-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .app-card {
+    padding: 20px;
+  }
+}

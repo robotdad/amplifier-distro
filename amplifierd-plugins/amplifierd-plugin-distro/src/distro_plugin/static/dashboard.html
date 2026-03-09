@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Amplifier</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+
+<!-- Theme initialization - must run before CSS to prevent flash -->
+<script src="/static/theme-init.js"></script>
+
+<!-- Shared brand theme tokens -->
+<link rel="stylesheet" href="/static/amplifier-theme.css">
+
+<!-- Main styles -->
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+
+<div class="container">
+  <!-- Wordmark -->
+  <div class="wordmark-wrapper">
+    <h1 class="wordmark">amplifier</h1>
+  </div>
+  
+  <p class="tagline">Your AI development environment is configured and ready.</p>
+
+  <div class="section-title">Apps</div>
+  <div class="apps-grid">
+    <a href="/chat/" class="app-card">
+      <div class="app-icon">💬</div>
+      <div class="app-name">Chat</div>
+      <div class="app-desc">AI chat in your browser, backed by Amplifier sessions.</div>
+    </a>
+    <a href="/apps/voice/" class="app-card">
+      <div class="app-icon">🎤</div>
+      <div class="app-name">Voice</div>
+      <div class="app-desc">Real-time voice conversations via OpenAI Realtime API.</div>
+    </a>
+    <a href="/apps/slack/setup-ui" class="app-card">
+      <div class="app-icon">📨</div>
+      <div class="app-name">Slack</div>
+      <div class="app-desc">Connect Slack channels to Amplifier sessions.</div>
+    </a>
+    <a href="/distro/settings" class="app-card">
+      <div class="app-icon">⚙️</div>
+      <div class="app-name">Settings</div>
+      <div class="app-desc">Manage providers, features, and bridges.</div>
+    </a>
+  </div>
+
+  <div class="section-title">Learn More</div>
+  <div class="links">
+    <a href="https://withamplifier.com/learn" target="_blank">Tutorial</a>
+    <span class="sep">&middot;</span>
+    <a href="https://github.com/microsoft/amplifier/tree/main/docs" target="_blank">Documentation</a>
+    <span class="sep">&middot;</span>
+    <a href="https://withamplifier.com/stories" target="_blank">Stories</a>
+  </div>
+
+  <div class="footer">
+    <a href="/distro/setup">Setup wizard</a> &middot;
+    <a href="/api/apps">API</a> &middot;
+    <a href="/docs">Swagger UI</a> &middot;
+    <a href="/openapi.json">OpenAPI spec</a> &middot;
+    <span id="feedback-slot"></span>
+  </div>
+</div>
+
+<script src="/static/feedback-widget.js"></script>
+<script>
+  AmplifierFeedback.init({
+    mode: 'inline',
+    container: document.getElementById('feedback-slot'),
+    context: { app: 'dashboard' },
+  });
+</script>
+</body>
+</html>
