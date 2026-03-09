@@ -179,29 +179,31 @@ def _get_current_provider(settings: DistroPluginSettings) -> dict[str, Any] | No
 
 
 def _build_status(settings: DistroPluginSettings) -> dict[str, Any]:
-    """Compose the full status response dict."""
+    """Compose the full status response dict.
+
+    Returns a dict with ``phase``, ``provider``, ``features``, and ``bridges``.
+    ``features`` is a dict keyed by feature ID; every feature in the catalog
+    is represented regardless of whether it is enabled, mirroring the original
+    distro-server ``_build_status()`` behaviour.
+    """
     phase = compute_phase(settings)
     provider = _get_current_provider(settings)
-    features = get_enabled_features(settings)
+    enabled_set = set(get_enabled_features(settings))
     bridges = detect_bridges(settings)
 
-    feature_details = []
-    for fid in features:
-        feat = FEATURES.get(fid)
-        if feat:
-            feature_details.append(
-                {
-                    "id": feat.id,
-                    "name": feat.name,
-                    "tier": feat.tier,
-                    "category": feat.category,
-                }
-            )
+    features_dict: dict[str, Any] = {}
+    for fid, feat in FEATURES.items():
+        features_dict[fid] = {
+            "enabled": fid in enabled_set,
+            "tier": feat.tier,
+            "name": feat.name,
+            "description": feat.description,
+        }
 
     return {
         "phase": phase,
         "provider": provider,
-        "features": feature_details,
+        "features": features_dict,
         "bridges": bridges,
     }
 
@@ -443,7 +445,7 @@ def create_routes() -> APIRouter:
             for inc in feature.includes:
                 remove_include(settings, inc)
 
-        return {"status": "ok", "feature_id": body.feature_id, "enabled": body.enabled}
+        return _build_status(settings)
 
     @router.post("/tier")
     async def post_tier(request: Request, body: TierRequest) -> dict[str, Any]:

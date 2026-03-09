@@ -80,6 +80,73 @@ def test_status_phase_detected_when_overlay_but_no_provider_key(
     assert data["phase"] == "detected"
 
 
+def test_status_features_is_dict_keyed_by_feature_id(client):
+    """_build_status returns 'features' as a dict keyed by feature ID, not a list."""
+    resp = client.get("/distro/status")
+    assert resp.status_code == 200
+
+    data = resp.json()
+    features = data["features"]
+
+    # Must be a dict, not a list
+    assert isinstance(features, dict), (
+        f"Expected features to be dict, got {type(features)}"
+    )
+
+
+def test_status_features_contains_all_catalog_features(client):
+    """_build_status returns ALL features from the catalog, not just enabled ones."""
+    from distro_plugin.features import FEATURES
+
+    resp = client.get("/distro/status")
+    data = resp.json()
+    features = data["features"]
+
+    for fid in FEATURES:
+        assert fid in features, f"Feature '{fid}' missing from status response"
+
+
+def test_status_features_entries_have_required_fields(client):
+    """Each feature entry in _build_status has 'enabled', 'tier', 'name', 'description'."""
+    resp = client.get("/distro/status")
+    data = resp.json()
+    features = data["features"]
+
+    for fid, feat_data in features.items():
+        assert "enabled" in feat_data, f"Feature {fid} missing 'enabled'"
+        assert "tier" in feat_data, f"Feature {fid} missing 'tier'"
+        assert "name" in feat_data, f"Feature {fid} missing 'name'"
+        assert "description" in feat_data, f"Feature {fid} missing 'description'"
+
+
+def test_status_features_all_disabled_when_no_overlay(client):
+    """_build_status shows all features disabled when no overlay exists."""
+    resp = client.get("/distro/status")
+    data = resp.json()
+    features = data["features"]
+
+    for fid, feat_data in features.items():
+        assert feat_data["enabled"] is False, f"Feature {fid} should be disabled"
+
+
+def test_status_features_shows_enabled_after_add(settings, client):
+    """_build_status reflects a feature as enabled after its includes are added."""
+    from distro_plugin.features import FEATURES
+    from distro_plugin.overlay import add_include
+
+    feat = FEATURES["dev-memory"]
+    for inc in feat.includes:
+        add_include(settings, inc)
+
+    resp = client.get("/distro/status")
+    data = resp.json()
+    features = data["features"]
+
+    assert features["dev-memory"]["enabled"] is True
+    # Other features should still be disabled
+    assert features["recipes"]["enabled"] is False
+
+
 def test_run_command_returns_empty_on_missing_executable():
     """_run_command returns '' when the command executable does not exist."""
     import asyncio

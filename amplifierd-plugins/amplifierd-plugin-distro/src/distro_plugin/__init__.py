@@ -17,7 +17,15 @@ def create_router(state: Any) -> APIRouter:
     Instantiates ``DistroPluginSettings`` from environment, attaches it to
     *state* so route handlers can retrieve it via
     ``request.app.state.distro.settings``, and returns the ``APIRouter``.
+
+    Also runs overlay migration at startup so any stale URIs from previous
+    installations are silently upgraded to current equivalents.
     """
     settings = DistroPluginSettings()
     state.distro = SimpleNamespace(settings=settings)
+
+    from distro_plugin.overlay import migrate_overlay
+
+    migrate_overlay(settings)
+
     return create_routes()

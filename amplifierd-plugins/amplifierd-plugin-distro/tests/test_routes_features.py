@@ -59,7 +59,8 @@ def test_post_features_enable_succeeds(settings, client):
     assert resp.status_code == 200
 
     data = resp.json()
-    assert data.get("status") == "ok"
+    # Response is now the full status dict (phase/provider/features/bridges).
+    assert "phase" in data
 
     # Verify the feature is now enabled (its includes are in the overlay)
     current = set(get_includes(settings))
@@ -83,7 +84,8 @@ def test_post_features_disable_succeeds(settings, client):
     assert resp.status_code == 200
 
     data = resp.json()
-    assert data.get("status") == "ok"
+    # Response is now the full status dict (phase/provider/features/bridges).
+    assert "phase" in data
 
     # Verify the feature is now disabled (its includes are not in the overlay)
     current = set(get_includes(settings))
@@ -133,3 +135,23 @@ def test_post_provider_bad_key_returns_400(client):
         json={"api_key": "bad-unknown-key-format"},
     )
     assert resp.status_code == 400
+
+
+def test_post_features_returns_full_status_dict(settings, client):
+    """POST /distro/features returns full status response (phase/provider/features/bridges), not a stub."""
+    resp = client.post(
+        "/distro/features",
+        json={"feature_id": "dev-memory", "enabled": True},
+    )
+    assert resp.status_code == 200
+
+    data = resp.json()
+    # Must return full status, not the minimal {"status": "ok", ...} stub
+    assert "phase" in data, "Expected 'phase' in full status response"
+    assert "provider" in data, "Expected 'provider' in full status response"
+    assert "features" in data, "Expected 'features' in full status response"
+    assert "bridges" in data, "Expected 'bridges' in full status response"
+
+    # features should be a dict with enabled state reflected
+    assert isinstance(data["features"], dict)
+    assert data["features"]["dev-memory"]["enabled"] is True

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 import yaml
 
 from distro_plugin.config import DistroPluginSettings
@@ -141,3 +142,153 @@ def test_remove_include_noop_when_no_overlay(settings):
     # Should not raise
     remove_include(settings, "git+https://example.com/whatever@main")
     assert overlay_exists(settings) is False
+
+
+# -- migrate_overlay ---------------------------------------------------------
+
+
+def test_migrate_overlay_replaces_old_uri_with_current(settings):
+    """migrate_overlay replaces a moved URI with the current equivalent in-place."""
+    from distro_plugin.overlay import (
+        _URI_REPLACEMENTS,
+        migrate_overlay,
+    )
+
+    if not _URI_REPLACEMENTS:
+        pytest.skip("No URI replacements defined")
+
+    old_uri = next(iter(_URI_REPLACEMENTS))
+    new_uri = _URI_REPLACEMENTS[old_uri]
+
+    _write(
+        settings,
+        {
+            "bundle": {"name": "test", "version": "0.1.0"},
+            "includes": [
+                {"bundle": old_uri},
+                {"bundle": "git+https://example.com/extra@main"},
+            ],
+        },
+    )
+
+    migrate_overlay(settings)
+
+    uris = get_includes(settings)
+    assert old_uri not in uris, f"Stale URI {old_uri!r} should have been replaced"
+    assert new_uri in uris, f"New URI {new_uri!r} should be present after migration"
+    # Extra include should be preserved
+    assert "git+https://example.com/extra@main" in uris
+
+
+def test_migrate_overlay_removes_stale_uris(settings):
+    """migrate_overlay removes URIs listed in _STALE_URIS."""
+    from distro_plugin.overlay import (
+        _DISTRO_BUNDLE_URI,
+        _STALE_URIS,
+        migrate_overlay,
+    )
+
+    if not _STALE_URIS:
+        pytest.skip("No stale URIs defined")
+
+    stale_uri = _STALE_URIS[0]
+    _write(
+        settings,
+        {
+            "bundle": {"name": "test", "version": "0.1.0"},
+            "includes": [
+                {"bundle": _DISTRO_BUNDLE_URI},
+                {"bundle": stale_uri},
+            ],
+        },
+    )
+
+    migrate_overlay(settings)
+
+    uris = get_includes(settings)
+    assert stale_uri not in uris, f"Stale URI {stale_uri!r} should have been removed"
+
+
+def test_migrate_overlay_ensures_distro_bundle_uri_at_position_0(settings):
+    """migrate_overlay ensures _DISTRO_BUNDLE_URI is present and at position 0."""
+    from distro_plugin.overlay import _DISTRO_BUNDLE_URI, migrate_overlay
+
+    # Overlay without the distro bundle URI
+    _write(
+        settings,
+        {
+            "bundle": {"name": "test", "version": "0.1.0"},
+            "includes": [
+                {"bundle": "git+https://example.com/some-feature@main"},
+            ],
+        },
+    )
+
+    migrate_overlay(settings)
+
+    uris = get_includes(settings)
+    assert _DISTRO_BUNDLE_URI in uris
+    assert uris[0] == _DISTRO_BUNDLE_URI, "Distro bundle URI should be at position 0"
+
+
+def test_migrate_overlay_noop_when_no_overlay(settings):
+    """migrate_overlay is a no-op when no overlay file exists."""
+    from distro_plugin.overlay import migrate_overlay
+
+    # Should not raise, overlay should still not exist
+    migrate_overlay(settings)
+    assert overlay_exists(settings) is False
+
+
+def test_migrate_overlay_noop_when_already_current(settings):
+    """migrate_overlay does not write when no migration is needed."""
+    from distro_plugin.overlay import _DISTRO_BUNDLE_URI, migrate_overlay
+
+    path = _overlay_path(settings)
+    _write(
+        settings,
+        {
+            "bundle": {"name": "test", "version": "0.1.0"},
+            "includes": [
+                {"bundle": _DISTRO_BUNDLE_URI},
+                {"bundle": "git+https://example.com/feature@main"},
+            ],
+        },
+    )
+
+    mtime_before = path.stat().st_mtime
+    migrate_overlay(settings)
+    mtime_after = path.stat().st_mtime
+
+    assert mtime_before == mtime_after, (
+        "File should not be rewritten if already current"
+    )
+
+
+def test_add_include_on_existing_overlay_with_stale_uri_migrates(settings):
+    """add_include migrates stale URIs in an existing overlay before adding."""
+    from distro_plugin.overlay import (
+        _URI_REPLACEMENTS,
+        add_include,
+    )
+
+    if not _URI_REPLACEMENTS:
+        pytest.skip("No URI replacements defined")
+
+    old_uri = next(iter(_URI_REPLACEMENTS))
+    new_uri = _URI_REPLACEMENTS[old_uri]
+
+    _write(
+        settings,
+        {
+            "bundle": {"name": "test", "version": "0.1.0"},
+            "includes": [{"bundle": old_uri}],
+        },
+    )
+
+    add_include(settings, "git+https://example.com/new-feature@main")
+
+    uris = get_includes(settings)
+    assert old_uri not in uris, "Old URI should have been replaced during add_include"
+    assert new_uri in uris, "New URI should be present after migration in add_include"
+    assert "git+https://example.com/new-feature@main" in uris
