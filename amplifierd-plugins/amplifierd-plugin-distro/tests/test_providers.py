@@ -1,0 +1,274 @@
+"""Tests for distro_plugin.providers — catalog, key management, registration."""
+
+from __future__ import annotations
+
+import os
+import stat
+
+import yaml
+
+from distro_plugin.providers import (
+    PROVIDERS,
+    Provider,
+    ProviderRegistrationResult,
+    _keys_path,
+    _settings_path,
+    add_provider_config,
+    check_provider_status,
+    detect_provider,
+    get_provider_catalog,
+    handle_provider_request,
+    load_keys,
+    persist_api_key,
+    register_provider,
+    resolve_provider,
+    sync_providers,
+)
+
+
+# -- PROVIDERS catalog -------------------------------------------------------
+
+
+def test_catalog_has_entries():
+    """PROVIDERS catalog contains all 6 expected providers."""
+    assert len(PROVIDERS) == 6
+    for pid in ("anthropic", "openai", "google", "xai", "ollama", "azure"):
+        assert pid in PROVIDERS
+
+
+def test_provider_has_required_fields():
+    """Each Provider has name, env_var, and include fields."""
+    for pid, provider in PROVIDERS.items():
+        assert isinstance(provider, Provider)
+        assert isinstance(provider.name, str) and provider.name
+        assert isinstance(provider.env_var, str) and provider.env_var
+        assert isinstance(provider.include, str) and provider.include
+
+
+# -- detect_provider ---------------------------------------------------------
+
+
+def test_detect_provider_known_prefixes():
+    """detect_provider identifies anthropic, openai, google, and xai by key prefix."""
+    assert detect_provider("sk-ant-abc123") == "anthropic"
+    assert detect_provider("sk-proj-abc123") == "openai"
+    assert detect_provider("AIzaSyAbc123") == "google"
+    assert detect_provider("xai-abc123") == "xai"
+
+
+def test_detect_provider_unknown_returns_none():
+    """detect_provider returns None for unrecognised key formats."""
+    assert detect_provider("unknown-key-format") is None
+
+
+# -- resolve_provider --------------------------------------------------------
+
+
+def test_resolve_provider_aliases():
+    """resolve_provider maps aliases to canonical provider IDs."""
+    assert resolve_provider("gemini") == "google"
+    assert resolve_provider("azure-openai") == "azure"
+    assert resolve_provider("provider-anthropic") == "anthropic"
+
+
+# -- load_keys / persist_api_key ---------------------------------------------
+
+
+def test_load_keys_returns_empty_when_missing(settings):
+    """load_keys returns {} when keys.env does not exist."""
+    assert load_keys(settings) == {}
+
+
+def test_persist_api_key_writes_to_keys_env(settings, monkeypatch):
+    """persist_api_key creates keys.env with the provider's env var."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    persist_api_key(settings, "anthropic", "sk-ant-test123")
+    content = _keys_path(settings).read_text()
+    assert 'ANTHROPIC_API_KEY="sk-ant-test123"' in content
+
+
+def test_persist_api_key_sets_env_var(settings, monkeypatch):
+    """persist_api_key also sets the key in os.environ."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    persist_api_key(settings, "anthropic", "sk-ant-envtest")
+    assert os.environ["ANTHROPIC_API_KEY"] == "sk-ant-envtest"
+
+
+def test_persist_api_key_updates_existing(settings, monkeypatch):
+    """persist_api_key updates an existing key in keys.env."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    persist_api_key(settings, "anthropic", "sk-ant-old")
+    persist_api_key(settings, "anthropic", "sk-ant-new")
+    keys = load_keys(settings)
+    assert keys["ANTHROPIC_API_KEY"] == "sk-ant-new"
+    # Should appear only once
+    lines = _keys_path(settings).read_text().splitlines()
+    key_lines = [ln for ln in lines if ln.startswith("ANTHROPIC_API_KEY")]
+    assert len(key_lines) == 1
+
+
+def test_persist_api_key_preserves_other_keys(settings, monkeypatch):
+    """persist_api_key does not clobber unrelated keys in keys.env."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    persist_api_key(settings, "anthropic", "sk-ant-first")
+    persist_api_key(settings, "openai", "sk-proj-second")
+    keys = load_keys(settings)
+    assert keys["ANTHROPIC_API_KEY"] == "sk-ant-first"
+    assert keys["OPENAI_API_KEY"] == "sk-proj-second"
+
+
+def test_persist_api_key_sets_chmod_600(settings, monkeypatch):
+    """persist_api_key sets file permissions to 600 on keys.env."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    persist_api_key(settings, "anthropic", "sk-ant-perm")
+    mode = _keys_path(settings).stat().st_mode
+    assert stat.S_IMODE(mode) == 0o600
+
+
+def test_load_keys_strips_quotes(settings):
+    """load_keys strips surrounding double and single quotes from values."""
+    path = _keys_path(settings)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("FOO=\"bar\"\nBAZ='qux'\nPLAIN=hello\n")
+    keys = load_keys(settings)
+    assert keys["FOO"] == "bar"
+    assert keys["BAZ"] == "qux"
+    assert keys["PLAIN"] == "hello"
+
+
+# -- add_provider_config -----------------------------------------------------
+
+
+def test_add_provider_config_writes_settings_yaml(settings):
+    """add_provider_config creates settings.yaml with provider entry."""
+    add_provider_config(settings, "anthropic")
+    data = yaml.safe_load(_settings_path(settings).read_text())
+    providers_list = data["config"]["providers"]
+    assert len(providers_list) == 1
+    entry = providers_list[0]
+    assert entry["module"] == "provider-anthropic"
+    assert entry["config"]["priority"] == 1
+
+
+def test_add_provider_config_is_idempotent(settings):
+    """add_provider_config does not duplicate an existing provider entry."""
+    add_provider_config(settings, "anthropic")
+    add_provider_config(settings, "anthropic")
+    data = yaml.safe_load(_settings_path(settings).read_text())
+    providers_list = data["config"]["providers"]
+    assert len(providers_list) == 1
+
+
+def test_add_provider_config_demotes_existing_priority(settings):
+    """add_provider_config demotes existing priority-1 providers to 10."""
+    add_provider_config(settings, "anthropic")
+    add_provider_config(settings, "openai")
+    data = yaml.safe_load(_settings_path(settings).read_text())
+    providers_list = data["config"]["providers"]
+    # Anthropic was demoted, OpenAI is priority 1
+    anthropic_entry = next(
+        e for e in providers_list if e["module"] == "provider-anthropic"
+    )
+    openai_entry = next(e for e in providers_list if e["module"] == "provider-openai")
+    assert anthropic_entry["config"]["priority"] == 10
+    assert openai_entry["config"]["priority"] == 1
+
+
+# -- register_provider -------------------------------------------------------
+
+
+def test_register_provider_full_orchestration(settings, monkeypatch):
+    """register_provider writes key, settings, and overlay in one call."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    result = register_provider(settings, "anthropic", "sk-ant-orch")
+    assert isinstance(result, ProviderRegistrationResult)
+    assert result.ok is True
+    assert result.key_saved is True
+    assert result.settings_updated is True
+    assert result.overlay_updated is True
+
+    # Key written
+    keys = load_keys(settings)
+    assert keys["ANTHROPIC_API_KEY"] == "sk-ant-orch"
+
+    # Settings written
+    data = yaml.safe_load(_settings_path(settings).read_text())
+    modules = [e["module"] for e in data["config"]["providers"]]
+    assert "provider-anthropic" in modules
+
+    # Overlay updated
+    from distro_plugin.overlay import get_includes
+
+    includes = get_includes(settings)
+    assert PROVIDERS["anthropic"].include in includes
+
+
+# -- get_provider_catalog ----------------------------------------------------
+
+
+def test_get_provider_catalog_returns_all_providers_with_status(settings):
+    """get_provider_catalog returns entries for all 6 providers with status."""
+    catalog = get_provider_catalog(settings)
+    assert len(catalog) == 6
+    ids = {entry["id"] for entry in catalog}
+    assert ids == {"anthropic", "openai", "google", "xai", "ollama", "azure"}
+    for entry in catalog:
+        assert "has_key" in entry
+        assert "in_settings" in entry
+        assert "in_overlay" in entry
+        assert "configured" in entry
+
+
+# -- handle_provider_request -------------------------------------------------
+
+
+def test_handle_provider_request_with_explicit_key(settings, monkeypatch):
+    """handle_provider_request with an explicit key detects and registers."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    result = handle_provider_request(settings, api_key="sk-ant-handle")
+    assert result["status"] == "ok"
+    assert result["provider"] == "anthropic"
+
+
+def test_handle_provider_request_unknown_key(settings):
+    """handle_provider_request returns error for unrecognised key format."""
+    result = handle_provider_request(settings, api_key="unknown-format-key")
+    assert result["status"] == "error"
+
+
+# -- check_provider_status ---------------------------------------------------
+
+
+def test_check_provider_status_unconfigured(settings, monkeypatch):
+    """check_provider_status returns all False when nothing is configured."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    status = check_provider_status(settings, "anthropic")
+    assert status["has_key"] is False
+    assert status["in_settings"] is False
+    assert status["in_overlay"] is False
+    assert status["configured"] is False
+
+
+def test_check_provider_status_fully_configured(settings, monkeypatch):
+    """check_provider_status returns all True after full registration."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    register_provider(settings, "anthropic", "sk-ant-status")
+    status = check_provider_status(settings, "anthropic")
+    assert status["has_key"] is True
+    assert status["in_settings"] is True
+    assert status["in_overlay"] is True
+    assert status["configured"] is True
+
+
+# -- sync_providers ----------------------------------------------------------
+
+
+def test_sync_providers_registers_incomplete(settings, monkeypatch):
+    """sync_providers auto-registers providers with keys but incomplete config."""
+    # Set up a key in env without settings or overlay
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-sync")
+    results = sync_providers(settings)
+    assert len(results) >= 1
+    anthropic_result = next(r for r in results if r.provider_id == "anthropic")
+    assert anthropic_result.ok is True
