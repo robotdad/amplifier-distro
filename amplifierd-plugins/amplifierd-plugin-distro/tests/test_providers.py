@@ -264,6 +264,68 @@ def test_check_provider_status_fully_configured(settings, monkeypatch):
 # -- sync_providers ----------------------------------------------------------
 
 
+def test_add_provider_config_writes_id_field(settings):
+    """add_provider_config writes the provider catalog id to each entry."""
+    add_provider_config(settings, "anthropic")
+    data = yaml.safe_load(_settings_path(settings).read_text())
+    entry = data["config"]["providers"][0]
+    assert entry["id"] == "anthropic"
+
+
+def test_add_provider_config_writes_base_url_when_present(settings):
+    """add_provider_config includes base_url in config for providers that need it (e.g. xAI)."""
+    add_provider_config(settings, "xai")
+    data = yaml.safe_load(_settings_path(settings).read_text())
+    entry = data["config"]["providers"][0]
+    assert entry["config"]["base_url"] == "https://api.x.ai/v1"
+
+
+def test_add_provider_config_omits_base_url_when_absent(settings):
+    """add_provider_config does not write base_url for providers that don't need it."""
+    add_provider_config(settings, "anthropic")
+    data = yaml.safe_load(_settings_path(settings).read_text())
+    entry = data["config"]["providers"][0]
+    assert "base_url" not in entry["config"]
+
+
+def test_add_provider_config_xai_and_openai_are_separate(settings):
+    """xAI and OpenAI get separate entries despite sharing module_id."""
+    add_provider_config(settings, "openai")
+    add_provider_config(settings, "xai")
+    data = yaml.safe_load(_settings_path(settings).read_text())
+    providers_list = data["config"]["providers"]
+    assert len(providers_list) == 2
+    ids = {e["id"] for e in providers_list}
+    assert ids == {"openai", "xai"}
+    modules = {e["module"] for e in providers_list}
+    assert modules == {"provider-openai"}  # both share the module
+
+
+def test_add_provider_config_xai_has_correct_config(settings):
+    """xAI entry has base_url and correct env var placeholder."""
+    add_provider_config(settings, "xai")
+    data = yaml.safe_load(_settings_path(settings).read_text())
+    entry = data["config"]["providers"][0]
+    assert entry["id"] == "xai"
+    assert entry["module"] == "provider-openai"
+    assert entry["config"]["base_url"] == "https://api.x.ai/v1"
+    assert entry["config"]["api_key"] == "${XAI_API_KEY}"
+    assert entry["config"]["default_model"] == "grok-3"
+
+
+def test_check_provider_status_distinguishes_xai_from_openai(settings, monkeypatch):
+    """check_provider_status correctly distinguishes xAI from OpenAI."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
+    # Register only OpenAI
+    register_provider(settings, "openai", "sk-proj-test")
+    # OpenAI should be configured, xAI should not be in_settings
+    openai_status = check_provider_status(settings, "openai")
+    xai_status = check_provider_status(settings, "xai")
+    assert openai_status["in_settings"] is True
+    assert xai_status["in_settings"] is False
+
+
 def test_sync_providers_registers_incomplete(settings, monkeypatch):
     """sync_providers auto-registers providers with keys but incomplete config."""
     # Set up a key in env without settings or overlay

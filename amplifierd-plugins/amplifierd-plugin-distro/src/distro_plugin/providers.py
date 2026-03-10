@@ -305,20 +305,25 @@ def add_provider_config(settings: DistroPluginSettings, provider_id: str) -> Non
     config = data.setdefault("config", {})
     providers_list: list[dict[str, Any]] = config.setdefault("providers", [])
 
-    # Already present — skip.  Note: idempotency is keyed on module_id,
-    # which may be shared across providers (e.g. xai and openai both use
-    # "provider-openai").  If the first is registered, the second no-ops.
+    # Idempotency is keyed on the provider catalog ``id`` (e.g. "xai",
+    # "openai") so that providers sharing a module (like xAI and OpenAI,
+    # both using ``provider-openai``) get separate entries.
     for entry in providers_list:
-        if entry.get("module") == provider.module_id:
+        if entry.get("id") == provider.id:
             return
 
+    config_block: dict[str, Any] = {
+        "default_model": provider.default_model,
+        "api_key": f"${{{provider.env_var}}}",
+        "priority": _PRIMARY_PRIORITY,
+    }
+    if provider.base_url:
+        config_block["base_url"] = provider.base_url
+
     new_entry: dict[str, Any] = {
+        "id": provider.id,
         "module": provider.module_id,
-        "config": {
-            "default_model": provider.default_model,
-            "api_key": f"${{{provider.env_var}}}",
-            "priority": _PRIMARY_PRIORITY,
-        },
+        "config": config_block,
     }
     if provider.source_url:
         new_entry["source"] = provider.source_url
@@ -404,9 +409,7 @@ def check_provider_status(
         try:
             data = yaml.safe_load(settings_path.read_text()) or {}
             providers_list = data.get("config", {}).get("providers", [])
-            in_settings = any(
-                e.get("module") == provider.module_id for e in providers_list
-            )
+            in_settings = any(e.get("id") == provider.id for e in providers_list)
         except (yaml.YAMLError, OSError):
             pass
 
