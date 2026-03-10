@@ -1,6 +1,7 @@
 """Amplifier Distro CLI — thin wrapper around amplifierd with remote-access defaults.
 
 Distro defaults differ from bare amplifierd:
+- home_redirect: /distro/ (not None) — root URL sends users to the distro dashboard
 - host: 0.0.0.0 (not 127.0.0.1) — remote-ready
 - tls: auto (not off) — HTTPS by default
 - auth: enabled (not disabled) — PAM login for remote users
@@ -47,6 +48,7 @@ def serve(
 ) -> None:
     """Start the distro experience server with remote-access defaults."""
     # Set distro defaults via env — amplifierd's DaemonSettings picks these up
+    os.environ.setdefault("AMPLIFIERD_HOME_REDIRECT", "/distro/")
     os.environ.setdefault("AMPLIFIERD_TLS_MODE", tls_mode)
     if not no_auth:
         os.environ.setdefault("AMPLIFIERD_AUTH_ENABLED", "true")
