@@ -121,6 +121,8 @@ def test_dashboard_html_uses_updated_paths():
     assert 'href="/distro/setup"' in content
     assert "/apps/settings/" not in content
     assert "/apps/install-wizard/" not in content
+    assert "/apps/voice/" not in content
+    assert "/apps/slack/" not in content
 
 
 def test_static_styles_css_served(client):

@@ -8,6 +8,8 @@ dependencies = [
     "amplifierd @ git+https://github.com/microsoft/amplifierd@main",
     "amplifierd-plugin-distro @ git+https://github.com/microsoft/amplifierd@main#subdirectory=amplifierd-plugins/distro",
     "amplifierd-plugin-chat @ git+https://github.com/payneio/amplifierd-plugin-chat@main",
+    "amplifierd-plugin-slack @ git+https://github.com/microsoft/amplifierd@main#subdirectory=amplifierd-plugins/slack",
+    "amplifierd-plugin-voice @ git+https://github.com/microsoft/amplifierd@main#subdirectory=amplifierd-plugins/voice",
 ]
 
 [project.scripts]
@@ -17,6 +19,8 @@ amp-distro = "amplifierd.cli:main"
 [tool.uv.sources]
 # amplifierd = { path = "../../amplifierd", editable = true }
 amplifierd-plugin-distro = { path = "../amplifierd-plugins/amplifierd-plugin-distro", editable = true }
+amplifierd-plugin-slack = { path = "../amplifierd-plugins/amplifierd-plugin-slack", editable = true }
+amplifierd-plugin-voice = { path = "../amplifierd-plugins/amplifierd-plugin-voice", editable = true }
 # amplifierd-plugin-chat = { path = "../../amplifierd-plugin-chat", editable = true }
 
 [tool.hatch.metadata]

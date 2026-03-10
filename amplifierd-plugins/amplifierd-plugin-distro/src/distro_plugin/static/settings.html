@@ -1355,8 +1355,8 @@ function renderMemoryStats() {
 function renderIntegrations() {
   const integrations = state.integrations || {};
   const items = [
-    { key: 'slack', fallbackName: 'Slack Bridge', fallbackDesc: 'Connect a Slack workspace to Amplifier sessions', fallbackUrl: '/apps/slack/setup-ui' },
-    { key: 'voice', fallbackName: 'Voice Bridge', fallbackDesc: 'Voice interface via OpenAI Realtime API', fallbackUrl: '/apps/voice/' },
+    { key: 'slack', fallbackName: 'Slack Bridge', fallbackDesc: 'Connect a Slack workspace to Amplifier sessions', fallbackUrl: '/slack/setup-ui' },
+    { key: 'voice', fallbackName: 'Voice Bridge', fallbackDesc: 'Voice interface via OpenAI Realtime API', fallbackUrl: '/voice/' },
   ];
 
   let html = '<div class="section">'
