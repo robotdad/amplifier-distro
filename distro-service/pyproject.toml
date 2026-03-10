@@ -7,7 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "amplifierd @ git+https://github.com/microsoft/amplifierd@main",
     "amplifierd-plugin-distro @ git+https://github.com/microsoft/amplifierd@main#subdirectory=amplifierd-plugins/distro",
-    "amplifierd-plugin-chat @ git+https://github.com/payneio/amplifierd-plugin-chat@main",
+    "amplifierd-plugin-chat @ git+https://github.com/microsoft/amplifierd-plugin-chat@main",
     "amplifierd-plugin-slack @ git+https://github.com/microsoft/amplifierd@main#subdirectory=amplifierd-plugins/slack",
     "amplifierd-plugin-voice @ git+https://github.com/microsoft/amplifier-voice@main",
     "amplifierd-plugin-auth",
