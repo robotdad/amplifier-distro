@@ -1053,6 +1053,11 @@ function render() {
     + renderFooter();
 
   bindEvents();
+
+  // Re-init auth widget after each render (innerHTML wipes the DOM each time)
+  if (window.AmplifierAuth) {
+    AmplifierAuth.init({ container: document.getElementById('auth-slot') });
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -1066,6 +1071,7 @@ function renderHeader() {
     + '<div class="header" style="margin-top: 24px; margin-bottom: 0;">'
     + '<div></div>'
     + '<div class="header-actions">'
+    + '<span id="auth-slot"></span>'
     + '<a href="/distro/">Back to Dashboard</a>'
     + '<span id="feedback-slot"></span>'
     + '</div>'
@@ -1536,6 +1542,7 @@ function esc(str) {
 /* ================================================================== */
 loadAll();
 </script>
+<script src="/static/auth-widget.js"></script>
 <script src="/static/feedback-widget.js"></script>
 <script>
   AmplifierFeedback.init({

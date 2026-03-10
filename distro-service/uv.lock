@@ -8,25 +8,29 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "amplifierd" },
+    { name = "amplifierd-plugin-auth" },
     { name = "amplifierd-plugin-chat" },
     { name = "amplifierd-plugin-distro" },
     { name = "amplifierd-plugin-slack" },
     { name = "amplifierd-plugin-voice" },
+    { name = "click" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "amplifierd", git = "https://github.com/microsoft/amplifierd?rev=main" },
+    { name = "amplifierd", editable = "../../amplifierd" },
+    { name = "amplifierd-plugin-auth", editable = "../amplifierd-plugins/amplifierd-plugin-auth" },
     { name = "amplifierd-plugin-chat", git = "https://github.com/payneio/amplifierd-plugin-chat?rev=main" },
     { name = "amplifierd-plugin-distro", editable = "../amplifierd-plugins/amplifierd-plugin-distro" },
     { name = "amplifierd-plugin-slack", editable = "../amplifierd-plugins/amplifierd-plugin-slack" },
-    { name = "amplifierd-plugin-voice", editable = "../amplifierd-plugins/amplifierd-plugin-voice" },
+    { name = "amplifierd-plugin-voice", git = "https://github.com/microsoft/amplifier-voice?rev=main" },
+    { name = "click", specifier = ">=8.1.0" },
 ]
 
 [[package]]
 name = "amplifier-core"
 version = "1.1.1"
-source = { git = "https://github.com/microsoft/amplifier-core#adab1f3a6d07bade27fd38d15b4dfadb4d1891b8" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
     { name = "pydantic" },
@@ -34,11 +38,28 @@ dependencies = [
     { name = "tomli" },
     { name = "typing-extensions" },
 ]
+sdist = { url = "https://files.pythonhosted.org/packages/6d/b7/05ab33db532c2b2b0fcae4ff41259101bb00e4d13e0b98cc0442be6ac97a/amplifier_core-1.1.1.tar.gz", hash = "sha256:56ad6c1d47f5bafb5d548e75e6f215cd95f9ff9bdc4bcfbfc38315543792f320", size = 299697, upload-time = "2026-03-09T13:14:43.452Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/63/0f/3f0068899a5ef8052d04ec4853f5fd1a5bf7c38bb43eca3b4abc9144eb3a/amplifier_core-1.1.1-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:250e6908e4719b9b99bf7d42dbbf8d8984c6cd3b3d4b172d21ba6cb21b6a46d5", size = 6802772, upload-time = "2026-03-09T13:14:04.306Z" },
+    { url = "https://files.pythonhosted.org/packages/d7/9c/cb27e8f9c0d4e5b6a0e74a44e4917540194ad17e3f8d14bd8bb461da295a/amplifier_core-1.1.1-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:c74041328073383dd2f3434bbe1d3d89c8d345da4143b521824a9e5e6205f5c1", size = 7000430, upload-time = "2026-03-09T13:14:06.047Z" },
+    { url = "https://files.pythonhosted.org/packages/ca/68/7cb3589c3be42cf81b69a41c4b93ffde3fee514c08c5ca0cdfc09b6cbee5/amplifier_core-1.1.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:af41f726ff2e1804938ae968d0bc580f2d2457203d278e208a0b9ece1efa4422", size = 8079235, upload-time = "2026-03-09T13:14:08.981Z" },
+    { url = "https://files.pythonhosted.org/packages/f7/da/953d8e6a9aafae73bc87ff550f813ede926755e2a72260ab9fb0e3d90546/amplifier_core-1.1.1-cp312-cp312-win_amd64.whl", hash = "sha256:3f3a97003cf33c86e4f980c6fd73b3d745e669867167da99669b541a83f85860", size = 8454248, upload-time = "2026-03-09T13:14:12.64Z" },
+    { url = "https://files.pythonhosted.org/packages/24/e4/bb88b887e78cecc604c09ad6634287fa8d479048ebc5627026701094074f/amplifier_core-1.1.1-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:f690c10250654f87daf4928f1918183838d3ce0a02b7d4b6be7e6fc4252543fa", size = 6802851, upload-time = "2026-03-09T13:14:15.07Z" },
+    { url = "https://files.pythonhosted.org/packages/1c/b7/e46d9842cc959cef5051908b29ab532dac46a464bc3a1ac2f9106e85ada3/amplifier_core-1.1.1-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:7e4a207fe59fd86686d82b13128200a89e6addc3a28cc62f7ac18891a551efb1", size = 6999052, upload-time = "2026-03-09T13:14:16.836Z" },
+    { url = "https://files.pythonhosted.org/packages/cd/d8/c77f48491b1c8d40cadbc2b8daea84b3d54144512c639904c504644394b9/amplifier_core-1.1.1-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:a473ee6eeec40420a6e211b35e0d6bb70978432e9c12cb04e7dfec4062380395", size = 8078458, upload-time = "2026-03-09T13:14:19.691Z" },
+    { url = "https://files.pythonhosted.org/packages/ac/d1/d766d24395741888b21067003058d167ff00ad9f6c1387f353bfad84e9c9/amplifier_core-1.1.1-cp313-cp313-win_amd64.whl", hash = "sha256:c2b0c510ef06e7dc95dba293bacef519da5a92add4eaba3eb0c58c2d0a470538", size = 8453868, upload-time = "2026-03-09T13:14:21.667Z" },
+    { url = "https://files.pythonhosted.org/packages/05/7c/8ba721bf5e879ce684c0ced2e916a7e84ce03300021ee4b500c16d915b6f/amplifier_core-1.1.1-cp313-cp313t-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:2e6e6f334d7e487aa93f606004c9f9d428fcc95f4f5a6d7707f4e4fc3e630311", size = 6994071, upload-time = "2026-03-09T13:14:23.957Z" },
+    { url = "https://files.pythonhosted.org/packages/c3/ca/cbc16d2498d3d2ae3c522207589c5109d7793bfd3df39b033317ee5d74fa/amplifier_core-1.1.1-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:832856b3c99fc46c95061ac6ce62d49fb26d930b57cc5439711876c252f9361f", size = 6801425, upload-time = "2026-03-09T13:14:25.881Z" },
+    { url = "https://files.pythonhosted.org/packages/2d/cb/1f8a58de32c99d49afb6c76b5138c2655d607f257167e64f7b64f8271c47/amplifier_core-1.1.1-cp314-cp314-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:15951a70632776c812cf0533a2f1aeee00b0cb32ba3a5b2f0b1a649b5958b847", size = 6998415, upload-time = "2026-03-09T13:14:27.786Z" },
+    { url = "https://files.pythonhosted.org/packages/7f/f5/a5cd527889c058743568cacbfcef7418d6b73744ceb4d663746b7ac62365/amplifier_core-1.1.1-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:417f8960ce938221ac530f2541f242ce85b6146c9fbaa65fefc3dee556a6cd0b", size = 8077700, upload-time = "2026-03-09T13:14:30.004Z" },
+    { url = "https://files.pythonhosted.org/packages/81/b0/11b418707a1a5eaa97877c1a042366854e86348f95f219f24548d6e988dc/amplifier_core-1.1.1-cp314-cp314-win_amd64.whl", hash = "sha256:f4658e1fcd681b865dc6737ee8ebdf5eedb2dcd6d0fc9bc1e3382aa2014e6ce3", size = 8453164, upload-time = "2026-03-09T13:14:33.022Z" },
+    { url = "https://files.pythonhosted.org/packages/e2/45/8f0e4dbce761d291af98989a13586f1ee91837b87936a4b6bfe35509e484/amplifier_core-1.1.1-cp314-cp314t-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:1f030f9711d802ffa0bc51a7fd7c4e2f7e5760aec8339d2bc9e764e491379aec", size = 6994097, upload-time = "2026-03-09T13:14:35.864Z" },
+]
 
 [[package]]
 name = "amplifier-foundation"
 version = "1.0.0"
-source = { git = "https://github.com/microsoft/amplifier-foundation#63255abe937378e667ae4c3f7aab07914c5602b4" }
+source = { git = "https://github.com/microsoft/amplifier-foundation#f70646b3fbcfeb353b054f5ee52daa0bff501876" }
 dependencies = [
     { name = "amplifier-core" },
     { name = "pyyaml" },
@@ -47,7 +68,7 @@ dependencies = [
 [[package]]
 name = "amplifierd"
 version = "0.1.0"
-source = { git = "https://github.com/microsoft/amplifierd?rev=main#4ba56b43747d2eea216a5d31367f3136fff3cfdd" }
+source = { editable = "../../amplifierd" }
 dependencies = [
     { name = "amplifier-core" },
     { name = "amplifier-foundation" },
@@ -59,6 +80,50 @@ dependencies = [
     { name = "sse-starlette" },
     { name = "uvicorn", extra = ["standard"] },
 ]
+
+[package.metadata]
+requires-dist = [
+    { name = "amplifier-core", specifier = ">=1.1.1" },
+    { name = "amplifier-foundation", git = "https://github.com/microsoft/amplifier-foundation" },
+    { name = "click", specifier = ">=8.1.0" },
+    { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28.1" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pydantic-settings", specifier = ">=2.6.0" },
+    { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1.407" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.5" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=6.1.1" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.11.10" },
+    { name = "sse-starlette", specifier = ">=2.2.1" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "amplifierd-plugin-auth"
+version = "0.1.0"
+source = { editable = "../amplifierd-plugins/amplifierd-plugin-auth" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "itsdangerous" },
+    { name = "python-multipart" },
+    { name = "python-pam", marker = "sys_platform == 'linux'" },
+    { name = "six" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28.1" },
+    { name = "itsdangerous", specifier = ">=2.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.5" },
+    { name = "python-multipart", specifier = ">=0.0.9" },
+    { name = "python-pam", marker = "sys_platform == 'linux'", specifier = ">=2.0.0" },
+    { name = "six" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "amplifierd-plugin-chat"
@@ -126,22 +191,13 @@ provides-extras = ["socket", "dev", "test"]
 [[package]]
 name = "amplifierd-plugin-voice"
 version = "0.1.0"
-source = { editable = "../amplifierd-plugins/amplifierd-plugin-voice" }
+source = { git = "https://github.com/microsoft/amplifier-voice?rev=main#a501ae233ec0c16cfa805b159ff788a9e96207e4" }
 dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "fastapi", specifier = ">=0.115" },
-    { name = "httpx", specifier = ">=0.24" },
-    { name = "httpx", marker = "extra == 'test'" },
-    { name = "pytest", marker = "extra == 'test'" },
-    { name = "pytest-asyncio", marker = "extra == 'test'" },
-    { name = "uvicorn", extras = ["standard"], marker = "extra == 'dev'", specifier = ">=0.30" },
-]
-provides-extras = ["dev", "test"]
 
 [[package]]
 name = "annotated-doc"
@@ -296,6 +352,15 @@ wheels = [
 ]
 
 [[package]]
+name = "itsdangerous"
+version = "2.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/9c/cb/8ac0172223afbccb63986cc25049b154ecfb5e85932587206f42317be31d/itsdangerous-2.2.0.tar.gz", hash = "sha256:e0050c0b7da1eea53ffaf149c0cfbb5c6e2e2b69c4bef22c81fa6eb73e5f6173", size = 54410, upload-time = "2024-04-16T21:28:15.614Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/04/96/92447566d16df59b2a776c0fb82dbc4d9e07cd95062562af01e408583fc4/itsdangerous-2.2.0-py3-none-any.whl", hash = "sha256:c6242fc49e35958c8b15141343aa660db5fc54d4f13a1db01a3f5891b98700ef", size = 16234, upload-time = "2024-04-16T21:28:14.499Z" },
+]
+
+[[package]]
 name = "pydantic"
 version = "2.12.5"
 source = { registry = "https://pypi.org/simple" }
@@ -405,6 +470,24 @@ wheels = [
 ]
 
 [[package]]
+name = "python-multipart"
+version = "0.0.22"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/94/01/979e98d542a70714b0cb2b6728ed0b7c46792b695e3eaec3e20711271ca3/python_multipart-0.0.22.tar.gz", hash = "sha256:7340bef99a7e0032613f56dc36027b959fd3b30a787ed62d310e951f7c3a3a58", size = 37612, upload-time = "2026-01-25T10:15:56.219Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1b/d0/397f9626e711ff749a95d96b7af99b9c566a9bb5129b8e4c10fc4d100304/python_multipart-0.0.22-py3-none-any.whl", hash = "sha256:2b2cd894c83d21bf49d702499531c7bafd057d730c201782048f7945d82de155", size = 24579, upload-time = "2026-01-25T10:15:54.811Z" },
+]
+
+[[package]]
+name = "python-pam"
+version = "2.0.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/6a/da/879f1c849e886b783239b8a4710daac73535ba2cfcf672ee4548543e3a74/python-pam-2.0.2.tar.gz", hash = "sha256:97235235ba9b82dbae8068d1099508455949b275f77273ca22fdbd8b1fb5d950", size = 11439, upload-time = "2022-03-18T00:32:09.856Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9b/2d/9fbb3bd686a474d76fbd0b79abdcc016f3da760b1d1c2048bf4c611a4939/python_pam-2.0.2-py3-none-any.whl", hash = "sha256:4ac51dd8953ac59aa45505882b565eef6a22e0423dcf25d63369902080416c20", size = 10658, upload-time = "2022-03-18T00:32:07.802Z" },
+]
+
+[[package]]
 name = "pyyaml"
 version = "6.0.3"
 source = { registry = "https://pypi.org/simple" }
@@ -448,6 +531,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/da/92/1446574745d74df0c92e6aa4a7b0b3130706a4142b2d1a5869f2eaa423c6/pyyaml-6.0.3-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:16249ee61e95f858e83976573de0f5b2893b3677ba71c9dd36b9cf8be9ac6d65", size = 829923, upload-time = "2025-09-25T21:32:54.537Z" },
     { url = "https://files.pythonhosted.org/packages/f0/7a/1c7270340330e575b92f397352af856a8c06f230aa3e76f86b39d01b416a/pyyaml-6.0.3-cp314-cp314t-win_amd64.whl", hash = "sha256:4ad1906908f2f5ae4e5a8ddfce73c320c2a1429ec52eafd27138b7f1cbe341c9", size = 174062, upload-time = "2025-09-25T21:32:55.767Z" },
     { url = "https://files.pythonhosted.org/packages/f1/12/de94a39c2ef588c7e6455cfbe7343d3b2dc9d6b6b2f40c4c6565744c873d/pyyaml-6.0.3-cp314-cp314t-win_arm64.whl", hash = "sha256:ebc55a14a21cb14062aa4162f906cd962b28e2e9ea38f9b4391244cd8de4ae0b", size = 149341, upload-time = "2025-09-25T21:32:56.828Z" },
+]
+
+[[package]]
+name = "six"
+version = "1.17.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/94/e7/b2c673351809dca68a0e064b6af791aa332cf192da575fd474ed7d6f16a2/six-1.17.0.tar.gz", hash = "sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81", size = 34031, upload-time = "2024-12-04T17:35:28.174Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl", hash = "sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274", size = 11050, upload-time = "2024-12-04T17:35:26.475Z" },
 ]
 
 [[package]]

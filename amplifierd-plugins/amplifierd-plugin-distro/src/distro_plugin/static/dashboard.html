@@ -18,6 +18,9 @@
 <body>
 
 <div class="container">
+  <div style="display:flex;align-items:center;justify-content:flex-end;padding:12px 0;">
+    <span id="auth-slot"></span>
+  </div>
   <!-- Wordmark -->
   <div class="wordmark-wrapper">
     <h1 class="wordmark">amplifier</h1>
@@ -74,6 +77,10 @@
     container: document.getElementById('feedback-slot'),
     context: { app: 'dashboard' },
   });
+</script>
+<script src="/static/auth-widget.js"></script>
+<script>
+  AmplifierAuth.init({ container: document.getElementById('auth-slot') });
 </script>
 </body>
 </html>
