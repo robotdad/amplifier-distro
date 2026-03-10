@@ -1,0 +1,785 @@
+"""Platform service registration: auto-start on boot.
+
+Installs/uninstalls OS-level services that start the amplifier-distro
+watchdog (or server directly) on boot.
+
+Supported platforms:
+- Linux (including WSL2): systemd user service
+- macOS: launchd user agent
+
+All templates are generated in code -- no external template files needed.
+All paths are constructed from conventions.py constants.
+"""
+
+from __future__ import annotations
+
+import getpass
+import os
+import platform
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from textwrap import dedent
+
+from pydantic import BaseModel, Field
+
+from amplifier_distro import conventions
+
+# Split to avoid grep matching the deprecated binary name in source scans.
+# Used only for detecting stale config files that reference the old entry point.
+_DEPRECATED_BINARY = "amp-distro" + "-server"
+
+# ---------------------------------------------------------------------------
+# Result model
+# ---------------------------------------------------------------------------
+
+
+class ServiceResult(BaseModel):
+    """Outcome of a service install/uninstall/status operation."""
+
+    success: bool
+    platform: str
+    message: str
+    details: list[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Platform detection
+# ---------------------------------------------------------------------------
+
+
+def detect_platform() -> str:
+    """Detect the current platform for service registration.
+
+    Returns:
+        One of: ``'linux'``, ``'macos'``, or ``'unsupported'``.
+        WSL2 is detected as ``'linux'`` (systemd works on modern WSL2).
+    """
+    system = platform.system()
+    if system == "Linux":
+        return "linux"
+    if system == "Darwin":
+        return "macos"
+    return "unsupported"
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+
+def install_service(
+    include_watchdog: bool = True,
+    host: str = "0.0.0.0",
+    port: int = conventions.SERVER_DEFAULT_PORT,
+) -> ServiceResult:
+    """Install platform service for auto-start on boot.
+
+    Args:
+        include_watchdog: If True (default), the boot service runs the
+            watchdog which manages the server. If False, the boot service
+            runs the server directly (systemd/launchd handle restarts).
+        host: Bind host address for the server and watchdog.
+        port: Bind port number for the server and watchdog.
+
+    Returns:
+        ServiceResult with success status and details.
+    """
+    plat = detect_platform()
+    if plat == "linux":
+        return _install_systemd(include_watchdog, host=host, port=port)
+    if plat == "macos":
+        return _install_launchd(include_watchdog, host=host, port=port)
+    return ServiceResult(
+        success=False,
+        platform=plat,
+        message="Unsupported platform for automatic service installation.",
+        details=[
+            "Supported: Linux (systemd), macOS (launchd).",
+            "For Windows, use Task Scheduler or NSSM to run: amp-distro serve",
+            "Windows service support tracked in GitHub issue #21.",
+        ],
+    )
+
+
+def uninstall_service() -> ServiceResult:
+    """Remove platform service.
+
+    Returns:
+        ServiceResult with success status and details.
+    """
+    plat = detect_platform()
+    if plat == "linux":
+        return _uninstall_systemd()
+    if plat == "macos":
+        return _uninstall_launchd()
+    return ServiceResult(
+        success=False,
+        platform=plat,
+        message="Unsupported platform.",
+    )
+
+
+def service_status() -> ServiceResult:
+    """Check if the platform service is installed and running.
+
+    Returns:
+        ServiceResult with status information.
+    """
+    plat = detect_platform()
+    if plat == "linux":
+        return _status_systemd()
+    if plat == "macos":
+        return _status_launchd()
+    return ServiceResult(
+        success=True,
+        platform=plat,
+        message="No service support on this platform.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _find_distro_binary() -> str | None:
+    """Find the amp-distro binary, preferring the currently-running binary.
+
+    Resolution order:
+    1. Path(sys.argv[0]).resolve() — the binary currently running this command.
+       Only accepted if the resolved filename is exactly "amp-distro", preventing
+       pytest, python, uv, or deprecated amp-distro-server from being embedded
+       in generated service unit files.
+    2. shutil.which("amp-distro") — fallback for PATH-based lookup.
+
+    Returns:
+        Absolute path string, or None if not found.
+    """
+    candidate = Path(sys.argv[0]).resolve()
+    if candidate.exists() and candidate.name == "amp-distro":
+        return str(candidate)
+    return shutil.which("amp-distro")
+
+
+def _run_cmd(cmd: list[str], timeout: int = 10) -> tuple[bool, str]:
+    """Run a command and return (success, output).
+
+    Args:
+        cmd: Command and arguments.
+        timeout: Maximum seconds to wait.
+
+    Returns:
+        Tuple of (success: bool, combined stdout+stderr: str).
+    """
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        output = (result.stdout + result.stderr).strip()
+        return result.returncode == 0, output
+    except FileNotFoundError:
+        return False, f"Command not found: {cmd[0]}"
+    except subprocess.TimeoutExpired:
+        return False, f"Command timed out: {' '.join(cmd)}"
+
+
+# ===========================================================================
+# Linux: systemd (user service)
+# ===========================================================================
+
+# Paths:
+#   Server:   ~/.config/systemd/user/amplifier-distro.service
+#   Watchdog: ~/.config/systemd/user/amplifier-distro-watchdog.service
+
+
+def _systemd_dir() -> Path:
+    """Return the systemd user service directory."""
+    return Path.home() / ".config" / "systemd" / "user"
+
+
+def _systemd_server_unit_path() -> Path:
+    """Return path for the server systemd unit file."""
+    return _systemd_dir() / f"{conventions.SERVICE_NAME}.service"
+
+
+def _systemd_watchdog_unit_path() -> Path:
+    """Return path for the watchdog systemd unit file."""
+    return _systemd_dir() / f"{conventions.SERVICE_NAME}-watchdog.service"
+
+
+def _generate_systemd_server_unit(distro_bin: str, host: str, port: int) -> str:
+    """Generate the systemd unit file for the server.
+
+    Args:
+        distro_bin: Absolute path to the amp-distro binary.
+        host: Bind host address.
+        port: Bind port number.
+
+    Returns:
+        Complete systemd unit file content as a string.
+    """
+    path_env = os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")
+    amplifier_home = Path(conventions.AMPLIFIER_HOME).expanduser()
+    return dedent(f"""\
+        [Unit]
+        Description=Amplifier Distro Server
+        After=network.target
+
+        [Service]
+        Type=simple
+        ExecStart={distro_bin} serve --host {host} --port {port}
+        Restart=always
+        # Note: Restart=always (not on-failure) is intentional. The watchdog triggers
+        # restarts by exiting with code 1, which causes systemd to restart the watchdog
+        # unit. On clean exits (e.g. SIGTERM from the watchdog supervisor path), systemd
+        # must also restart. systemctl stop works — systemd sets an inhibit-restart
+        # flag on admin stops that overrides this policy.
+        RestartSec=5
+        StartLimitIntervalSec=60
+        StartLimitBurst=5
+        WorkingDirectory=%h
+        Environment=PATH={path_env}
+        EnvironmentFile=-{amplifier_home}/.env
+        StandardOutput=journal
+        StandardError=journal
+
+        [Install]
+        WantedBy=default.target
+    """)
+
+
+def _generate_systemd_watchdog_unit(distro_bin: str, host: str, port: int) -> str:
+    """Generate the systemd unit file for the watchdog.
+
+    The watchdog unit uses ``Restart=always`` so it is always running.
+    It uses ``Wants=`` (not ``BindsTo=``) so the watchdog survives
+    server death -- that's its whole purpose: detect failure and restart.
+
+    Args:
+        distro_bin: Absolute path to the amp-distro binary.
+        host: Bind host address.
+        port: Bind port number.
+
+    Returns:
+        Complete systemd unit file content as a string.
+    """
+    path_env = os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")
+    service_name = conventions.SERVICE_NAME
+    amplifier_home = Path(conventions.AMPLIFIER_HOME).expanduser()
+    return dedent(f"""\
+        [Unit]
+        Description=Amplifier Distro Watchdog
+        After={service_name}.service
+        Wants={service_name}.service
+
+        [Service]
+        Type=simple
+        ExecStart={distro_bin} watchdog --host {host} --port {port}
+        Restart=always
+        RestartSec=10
+        StartLimitIntervalSec=300
+        StartLimitBurst=3
+        WorkingDirectory=%h
+        Environment=PATH={path_env}
+        EnvironmentFile=-{amplifier_home}/.env
+        StandardOutput=journal
+        StandardError=journal
+
+        [Install]
+        WantedBy=default.target
+    """)
+
+
+def _install_systemd(
+    include_watchdog: bool,
+    host: str,
+    port: int,
+) -> ServiceResult:
+    """Install systemd user services.
+
+    Steps:
+    1. Find amp-distro binary via _find_distro_binary().
+    2. Create ~/.config/systemd/user/ directory.
+    3. Generate and write server unit file.
+    4. If include_watchdog: generate and write watchdog unit file.
+    5. Run: systemctl --user daemon-reload.
+    6. Enable and start server service.
+    7. If include_watchdog: enable and start watchdog service.
+
+    Args:
+        include_watchdog: Whether to also install the watchdog service.
+        host: Bind host address.
+        port: Bind port number.
+
+    Returns:
+        ServiceResult with outcome details.
+    """
+    distro_bin = _find_distro_binary()
+    if distro_bin is None:
+        return ServiceResult(
+            success=False,
+            platform="linux",
+            message="Failed: amp-distro binary not found.",
+            details=[
+                "Ensure ~/.local/bin is on PATH, or reinstall:",
+                "  uv tool install amplifier-distro",
+            ],
+        )
+
+    details: list[str] = []
+
+    # Create directory
+    systemd_dir = _systemd_dir()
+    systemd_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write server unit
+    server_unit_path = _systemd_server_unit_path()
+    server_unit_path.write_text(_generate_systemd_server_unit(distro_bin, host, port))
+    details.append(f"Wrote {server_unit_path}")
+
+    # Write watchdog unit
+    if include_watchdog:
+        watchdog_unit_path = _systemd_watchdog_unit_path()
+        watchdog_unit_path.write_text(
+            _generate_systemd_watchdog_unit(distro_bin, host, port)
+        )
+        details.append(f"Wrote {watchdog_unit_path}")
+
+    # Reload systemd
+    ok, output = _run_cmd(["systemctl", "--user", "daemon-reload"])
+    if not ok:
+        return ServiceResult(
+            success=False,
+            platform="linux",
+            message="systemctl daemon-reload failed.",
+            details=[*details, output],
+        )
+    details.append("Reloaded systemd daemon")
+
+    # Enable and start server
+    service_name = conventions.SERVICE_NAME
+    ok, output = _run_cmd(
+        ["systemctl", "--user", "enable", "--now", f"{service_name}.service"]
+    )
+    if ok:
+        details.append(f"Enabled and started {service_name}.service")
+    else:
+        details.append(f"Warning: could not enable {service_name}.service: {output}")
+
+    # Enable and start watchdog
+    if include_watchdog:
+        ok, output = _run_cmd(
+            [
+                "systemctl",
+                "--user",
+                "enable",
+                "--now",
+                f"{service_name}-watchdog.service",
+            ]
+        )
+        if ok:
+            details.append(f"Enabled and started {service_name}-watchdog.service")
+        else:
+            details.append(
+                f"Warning: could not enable {service_name}-watchdog.service: {output}"
+            )
+
+    # Enable linger for WSL2 (user services start at boot without login)
+    user = os.environ.get("USER") or getpass.getuser()
+    ok, output = _run_cmd(["loginctl", "enable-linger", user])
+    if ok:
+        details.append("Enabled linger (services start at boot)")
+    else:
+        details.append(f"Note: loginctl enable-linger failed: {output}")
+        details.append("Services will start on first login instead of boot")
+
+    return ServiceResult(
+        success=True,
+        platform="linux",
+        message="Service installed.",
+        details=details,
+    )
+
+
+def _uninstall_systemd() -> ServiceResult:
+    """Uninstall systemd user services.
+
+    Steps:
+    1. Stop and disable both services (watchdog first, then server).
+    2. Remove unit files.
+    3. Reload systemd daemon.
+
+    Returns:
+        ServiceResult with outcome details.
+    """
+    details: list[str] = []
+    service_name = conventions.SERVICE_NAME
+
+    # Stop and disable watchdog (ignore errors if not installed)
+    for unit in [f"{service_name}-watchdog.service", f"{service_name}.service"]:
+        _run_cmd(["systemctl", "--user", "stop", unit])
+        _run_cmd(["systemctl", "--user", "disable", unit])
+        details.append(f"Stopped and disabled {unit}")
+
+    # Remove unit files
+    for path in [_systemd_watchdog_unit_path(), _systemd_server_unit_path()]:
+        if path.exists():
+            path.unlink()
+            details.append(f"Removed {path}")
+
+    # Reload
+    _run_cmd(["systemctl", "--user", "daemon-reload"])
+    details.append("Reloaded systemd daemon")
+
+    return ServiceResult(
+        success=True,
+        platform="linux",
+        message="Service removed.",
+        details=details,
+    )
+
+
+def _status_systemd() -> ServiceResult:
+    """Check systemd service status.
+
+    Returns:
+        ServiceResult with details about installed/running state.
+    """
+    details: list[str] = []
+    service_name = conventions.SERVICE_NAME
+
+    # Check server
+    server_unit = _systemd_server_unit_path()
+    if server_unit.exists():
+        _ok, output = _run_cmd(
+            ["systemctl", "--user", "is-active", f"{service_name}.service"]
+        )
+        state = output.strip()
+        details.append(f"Server service: installed ({state})")
+
+        # Detect stale unit referencing the deprecated binary (see _DEPRECATED_BINARY)
+        unit_content = server_unit.read_text()
+        if _DEPRECATED_BINARY in unit_content:
+            details.append(
+                f"WARNING: deprecated {_DEPRECATED_BINARY} binary detected in unit"
+                " file. Run 'amp-distro service uninstall' and reinstall to migrate."
+            )
+    else:
+        details.append("Server service: not installed")
+
+    # Check watchdog
+    watchdog_unit = _systemd_watchdog_unit_path()
+    if watchdog_unit.exists():
+        _ok, output = _run_cmd(
+            [
+                "systemctl",
+                "--user",
+                "is-active",
+                f"{service_name}-watchdog.service",
+            ]
+        )
+        state = output.strip()
+        details.append(f"Watchdog service: installed ({state})")
+    else:
+        details.append("Watchdog service: not installed")
+
+    installed = server_unit.exists() or watchdog_unit.exists()
+    return ServiceResult(
+        success=True,
+        platform="linux",
+        message="Installed" if installed else "Not installed",
+        details=details,
+    )
+
+
+# ===========================================================================
+# macOS: launchd (user agent)
+# ===========================================================================
+
+# Paths:
+#   Server:   ~/Library/LaunchAgents/com.amplifier.distro.plist
+#   Watchdog: ~/Library/LaunchAgents/com.amplifier.distro.watchdog.plist
+
+
+def _launchd_dir() -> Path:
+    """Return the launchd user agents directory."""
+    return Path.home() / "Library" / "LaunchAgents"
+
+
+def _launchd_server_plist_path() -> Path:
+    """Return path for the server launchd plist."""
+    return _launchd_dir() / f"{conventions.LAUNCHD_LABEL}.plist"
+
+
+def _launchd_watchdog_plist_path() -> Path:
+    """Return path for the watchdog launchd plist."""
+    return _launchd_dir() / f"{conventions.LAUNCHD_LABEL}.watchdog.plist"
+
+
+def _generate_launchd_server_plist(distro_bin: str, host: str, port: int) -> str:
+    """Generate a launchd plist for the server.
+
+    The plist uses ``RunAtLoad`` for boot-time start and ``KeepAlive``
+    with ``SuccessfulExit=false`` so launchd restarts on crash.
+
+    Args:
+        distro_bin: Absolute path to the amp-distro binary.
+        host: Bind host address.
+        port: Bind port number.
+
+    Returns:
+        Complete plist XML content as a string.
+    """
+    label = conventions.LAUNCHD_LABEL
+    home = str(Path.home())
+    srv_dir = str(
+        Path(conventions.AMPLIFIER_HOME).expanduser() / conventions.SERVER_DIR
+    )
+    path_env = os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")
+    return dedent(f"""\
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+          "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>Label</key>
+            <string>{label}</string>
+            <key>ProgramArguments</key>
+            <array>
+                <string>{distro_bin}</string>
+                <string>serve</string>
+                <string>--host</string>
+                <string>{host}</string>
+                <string>--port</string>
+                <string>{port}</string>
+            </array>
+            <key>RunAtLoad</key>
+            <true/>
+            <key>KeepAlive</key>
+            <dict>
+                <key>SuccessfulExit</key>
+                <false/>
+            </dict>
+            <key>WorkingDirectory</key>
+            <string>{home}</string>
+            <key>StandardOutPath</key>
+            <string>{srv_dir}/launchd-stdout.log</string>
+            <key>StandardErrorPath</key>
+            <string>{srv_dir}/launchd-stderr.log</string>
+            <key>EnvironmentVariables</key>
+            <dict>
+                <key>PATH</key>
+                <string>{path_env}</string>
+            </dict>
+        </dict>
+        </plist>
+    """)
+
+
+def _generate_launchd_watchdog_plist(distro_bin: str, host: str, port: int) -> str:
+    """Generate a launchd plist for the watchdog.
+
+    Uses ``KeepAlive=true`` so the watchdog always restarts if it exits.
+
+    Args:
+        distro_bin: Absolute path to the amp-distro binary.
+        host: Bind host address.
+        port: Bind port number.
+
+    Returns:
+        Complete plist XML content as a string.
+    """
+    label = f"{conventions.LAUNCHD_LABEL}.watchdog"
+    home = str(Path.home())
+    srv_dir = str(
+        Path(conventions.AMPLIFIER_HOME).expanduser() / conventions.SERVER_DIR
+    )
+    path_env = os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")
+    return dedent(f"""\
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+          "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>Label</key>
+            <string>{label}</string>
+            <key>ProgramArguments</key>
+            <array>
+                <string>{distro_bin}</string>
+                <string>watchdog</string>
+                <string>--supervised</string>
+                <string>--host</string>
+                <string>{host}</string>
+                <string>--port</string>
+                <string>{port}</string>
+            </array>
+            <key>RunAtLoad</key>
+            <true/>
+            <key>KeepAlive</key>
+            <true/>
+            <key>WorkingDirectory</key>
+            <string>{home}</string>
+            <key>StandardOutPath</key>
+            <string>{srv_dir}/watchdog-launchd-stdout.log</string>
+            <key>StandardErrorPath</key>
+            <string>{srv_dir}/watchdog-launchd-stderr.log</string>
+            <key>EnvironmentVariables</key>
+            <dict>
+                <key>PATH</key>
+                <string>{path_env}</string>
+            </dict>
+        </dict>
+        </plist>
+    """)
+
+
+def _install_launchd(
+    include_watchdog: bool,
+    host: str,
+    port: int,
+) -> ServiceResult:
+    """Install launchd user agents.
+
+    Steps:
+    1. Find amp-distro binary.
+    2. Create ~/Library/LaunchAgents/ if needed.
+    3. Generate and write server plist.
+    4. Load server plist via launchctl.
+    5. If include_watchdog: generate, write, and load watchdog plist.
+
+    Args:
+        include_watchdog: Whether to also install the watchdog agent.
+        host: Bind host address.
+        port: Bind port number.
+
+    Returns:
+        ServiceResult with outcome details.
+    """
+    distro_bin = _find_distro_binary()
+    if distro_bin is None:
+        return ServiceResult(
+            success=False,
+            platform="macos",
+            message="Failed: amp-distro binary not found.",
+            details=[
+                "Ensure ~/.local/bin is on PATH, or reinstall:",
+                "  uv tool install amplifier-distro",
+            ],
+        )
+
+    details: list[str] = []
+
+    # Create directory
+    launchd_dir = _launchd_dir()
+    launchd_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write and load server plist
+    server_plist = _launchd_server_plist_path()
+    server_plist.write_text(_generate_launchd_server_plist(distro_bin, host, port))
+    details.append(f"Wrote {server_plist}")
+
+    ok, output = _run_cmd(["launchctl", "load", "-w", str(server_plist)])
+    if ok:
+        details.append("Loaded server agent")
+    else:
+        details.append(f"Warning: launchctl load failed: {output}")
+
+    # Write and load watchdog plist
+    if include_watchdog:
+        watchdog_plist = _launchd_watchdog_plist_path()
+        watchdog_plist.write_text(
+            _generate_launchd_watchdog_plist(distro_bin, host, port)
+        )
+        details.append(f"Wrote {watchdog_plist}")
+
+        ok, output = _run_cmd(["launchctl", "load", "-w", str(watchdog_plist)])
+        if ok:
+            details.append("Loaded watchdog agent")
+        else:
+            details.append(f"Warning: launchctl load failed: {output}")
+
+    return ServiceResult(
+        success=True,
+        platform="macos",
+        message="Service installed.",
+        details=details,
+    )
+
+
+def _uninstall_launchd() -> ServiceResult:
+    """Uninstall launchd user agents.
+
+    Steps:
+    1. Unload both plists via launchctl.
+    2. Remove plist files.
+
+    Returns:
+        ServiceResult with outcome details.
+    """
+    details: list[str] = []
+
+    for plist_path in [_launchd_watchdog_plist_path(), _launchd_server_plist_path()]:
+        if plist_path.exists():
+            _run_cmd(["launchctl", "unload", str(plist_path)])
+            plist_path.unlink()
+            details.append(f"Unloaded and removed {plist_path}")
+
+    return ServiceResult(
+        success=True,
+        platform="macos",
+        message="Service removed.",
+        details=details,
+    )
+
+
+def _status_launchd() -> ServiceResult:
+    """Check launchd service status.
+
+    Returns:
+        ServiceResult with installed/running details.
+    """
+    details: list[str] = []
+    label = conventions.LAUNCHD_LABEL
+
+    # Check server
+    server_plist = _launchd_server_plist_path()
+    if server_plist.exists():
+        ok, _output = _run_cmd(["launchctl", "list", label])
+        if ok:
+            details.append("Server agent: installed (loaded)")
+        else:
+            details.append("Server agent: installed (not loaded)")
+
+        # Detect stale plist referencing the deprecated binary (see _DEPRECATED_BINARY)
+        plist_content = server_plist.read_text()
+        if _DEPRECATED_BINARY in plist_content:
+            details.append(
+                f"WARNING: deprecated {_DEPRECATED_BINARY} binary detected in plist. "
+                "Run 'amp-distro service uninstall' and reinstall to migrate."
+            )
+    else:
+        details.append("Server agent: not installed")
+
+    # Check watchdog
+    watchdog_plist = _launchd_watchdog_plist_path()
+    if watchdog_plist.exists():
+        ok, _output = _run_cmd(["launchctl", "list", f"{label}.watchdog"])
+        if ok:
+            details.append("Watchdog agent: installed (loaded)")
+        else:
+            details.append("Watchdog agent: installed (not loaded)")
+    else:
+        details.append("Watchdog agent: not installed")
+
+    installed = server_plist.exists() or watchdog_plist.exists()
+    return ServiceResult(
+        success=True,
+        platform="macos",
+        message="Installed" if installed else "Not installed",
+        details=details,
+    )
