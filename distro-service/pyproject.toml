@@ -19,7 +19,7 @@ amp-distro = "amplifier_distro.cli:main"
 
 # Local dev overrides: use sibling checkouts instead of git URLs
 [tool.uv.sources]
-amplifierd = { path = "../../amplifierd", editable = true }
+amplifierd = { git = "https://github.com/microsoft/amplifierd", branch = "main" }
 amplifierd-plugin-distro = { path = "../amplifierd-plugins/amplifierd-plugin-distro", editable = true }
 amplifierd-plugin-slack = { path = "../amplifierd-plugins/amplifierd-plugin-slack", editable = true }
 # amplifierd-plugin-voice — now a proper remote dep, no local override needed
