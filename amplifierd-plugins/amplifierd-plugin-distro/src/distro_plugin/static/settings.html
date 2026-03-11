@@ -1383,35 +1383,38 @@ function renderMemoryStats() {
 /* ------------------------------------------------------------------ */
 function renderIntegrations() {
   const integrations = state.integrations || {};
-  const items = [
-    { key: 'slack', fallbackName: 'Slack Bridge', fallbackDesc: 'Connect a Slack workspace to Amplifier sessions', fallbackUrl: '/slack/setup-ui' },
-    { key: 'voice', fallbackName: 'Voice Bridge', fallbackDesc: 'Voice interface via OpenAI Realtime API', fallbackUrl: '/voice/' },
-  ];
+  const items = Object.entries(integrations);
 
   let html = '<div class="section">'
-    + '<div class="section-title">Integrations</div>'
-    + '<div class="feature-list">';
+    + '<div class="section-title">Integrations</div>';
 
-  items.forEach(item => {
-    const data = integrations[item.key] || {};
-    const name = data.name || item.fallbackName;
-    const desc = data.description || item.fallbackDesc;
-    const setupUrl = data.setup_url || item.fallbackUrl;
-    const status = data.status || 'not_configured';
-    const statusClass = status === 'configured' ? 'configured' : 'not-configured';
-    const statusLabel = status === 'configured' ? 'Configured' : 'Not Configured';
+  if (items.length === 0) {
+    html += '<div style="color: var(--ink-slate); font-size: 13px; padding: 12px 0;">'
+      + 'No integrations configured.'
+      + '</div>';
+  } else {
+    html += '<div class="feature-list">';
+    items.forEach(([key, data]) => {
+      const name = data.name || key;
+      const desc = data.description || '';
+      const setupUrl = data.setup_url || '#';
+      const status = data.status || 'not_configured';
+      const statusClass = status === 'configured' ? 'configured' : 'not-configured';
+      const statusLabel = status === 'configured' ? 'Configured' : 'Not Configured';
 
-    html += '<a href="' + esc(setupUrl) + '" class="integration-row" style="cursor: pointer;">'
-      + '<div class="feature-info">'
-      + '<div class="feature-name">' + esc(name) + '</div>'
-      + '<div class="feature-desc">' + esc(desc) + '</div>'
-      + '</div>'
-      + '<span class="integration-status ' + statusClass + '">' + statusLabel + '</span>'
-      + '<span class="integration-link">Configure &rarr;</span>'
-      + '</a>';
-  });
+      html += '<a href="' + esc(setupUrl) + '" class="integration-row" style="cursor: pointer;">'
+        + '<div class="feature-info">'
+        + '<div class="feature-name">' + esc(name) + '</div>'
+        + '<div class="feature-desc">' + esc(desc) + '</div>'
+        + '</div>'
+        + '<span class="integration-status ' + statusClass + '">' + statusLabel + '</span>'
+        + '<span class="integration-link">Configure &rarr;</span>'
+        + '</a>';
+    });
+    html += '</div>';
+  }
 
-  html += '</div></div>';
+  html += '</div>';
   return html;
 }
 
