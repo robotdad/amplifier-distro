@@ -869,7 +869,7 @@ async function coreApi(method, path, body) {
 /* ================================================================== */
 async function loadAll() {
   const [statusData, detectData, configData, memoryData, workData, serverData, provData] = await Promise.all([
-    api('GET', '/preflight'),
+    api('GET', '/status'),
     fetch('/distro/detect').then(r => r.ok ? r.json() : { error: 'HTTP ' + r.status }).catch(() => ({ error: true })),
     api('GET', '/distro-settings'),
     coreApi('GET', '/memory/stats').catch(() => ({ error: true })),
