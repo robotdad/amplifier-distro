@@ -94,6 +94,7 @@ class DistroSettingsUpdate(BaseModel):
     section: str | None = None
     values: dict[str, Any] = {}
 
+
 # Candidate directory names to scan under $HOME for workspace detection.
 _WORKSPACE_CANDIDATES = ("projects", "repos", "src", "code", "dev", "workspace")
 
@@ -117,6 +118,7 @@ def compute_phase(settings: DistroPluginSettings) -> str:
             return "ready"
 
     return "detected"
+
 
 def _get_current_provider(settings: DistroPluginSettings) -> dict[str, Any] | None:
     """Return the current primary provider info by matching overlay URIs."""
@@ -726,6 +728,12 @@ def create_routes() -> APIRouter:
         html_path = _STATIC_DIR / "dashboard.html"
         try:
             content = html_path.read_text()
+            # Tell the frontend whether PAM auth is active so the auth
+            # widget can skip its /auth/me probe when there is no session
+            # infrastructure to query.
+            auth_on = hasattr(request.app.state, "auth_verify_session")
+            tag = f"<script>window.__AUTH_ENABLED={str(auth_on).lower()}</script>"
+            content = content.replace("</head>", tag + "</head>", 1)
             return HTMLResponse(content=content)
         except OSError:
             return HTMLResponse(
@@ -752,6 +760,12 @@ def create_routes() -> APIRouter:
         html_path = _STATIC_DIR / "settings.html"
         try:
             content = html_path.read_text()
+            # Tell the frontend whether PAM auth is active so the auth
+            # widget can skip its /auth/me probe when there is no session
+            # infrastructure to query.
+            auth_on = hasattr(request.app.state, "auth_verify_session")
+            tag = f"<script>window.__AUTH_ENABLED={str(auth_on).lower()}</script>"
+            content = content.replace("</head>", tag + "</head>", 1)
             return HTMLResponse(content=content)
         except OSError:
             return HTMLResponse(

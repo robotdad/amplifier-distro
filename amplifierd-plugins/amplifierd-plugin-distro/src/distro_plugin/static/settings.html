@@ -872,8 +872,11 @@ async function loadAll() {
     api('GET', '/preflight'),
     fetch('/distro/detect').then(r => r.ok ? r.json() : { error: 'HTTP ' + r.status }).catch(() => ({ error: true })),
     api('GET', '/distro-settings'),
-    coreApi('GET', '/memory/stats').catch(() => ({ error: true })),
-    coreApi('GET', '/memory/work-status'),
+    // TODO: restore when amplifierd exposes /api/memory/* routes.
+    // coreApi('GET', '/memory/stats').catch(() => ({ error: true })),
+    // coreApi('GET', '/memory/work-status'),
+    Promise.resolve({ error: true }),
+    Promise.resolve({ error: true }),
     api('GET', '/preflight'),
     api('GET', '/providers'),
   ]);

@@ -88,6 +88,10 @@
     var container = opts.container;
     if (!container) return;
 
+    // When PAM auth is not active the server sets __AUTH_ENABLED = false.
+    // Skip the /auth/me probe entirely — there is no session infrastructure.
+    if (!window.__AUTH_ENABLED) return;
+
     injectStyle();
 
     fetch('/auth/me')
