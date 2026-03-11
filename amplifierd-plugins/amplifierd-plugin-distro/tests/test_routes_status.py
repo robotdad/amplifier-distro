@@ -4,7 +4,7 @@ from __future__ import annotations
 
 
 def test_status_returns_expected_structure_defaults_unconfigured(client):
-    """GET /distro/status returns phase, provider, features, bridges; defaults to 'unconfigured'."""
+    """GET /distro/status returns phase, provider, features; defaults to 'unconfigured'."""
     resp = client.get("/distro/status")
     assert resp.status_code == 200
 
@@ -14,14 +14,13 @@ def test_status_returns_expected_structure_defaults_unconfigured(client):
     assert "phase" in data
     assert "provider" in data
     assert "features" in data
-    assert "bridges" in data
 
     # Default phase when nothing is configured
     assert data["phase"] == "unconfigured"
 
 
 def test_detect_returns_expected_structure(client):
-    """GET /distro/detect returns github, git, api_keys, workspace_candidates, bridges, and flat convenience fields."""
+    """GET /distro/detect returns github, git, api_keys, workspace_candidates, and flat convenience fields."""
     resp = client.get("/distro/detect")
     assert resp.status_code == 200
 
@@ -32,7 +31,6 @@ def test_detect_returns_expected_structure(client):
     assert "git" in data
     assert "api_keys" in data
     assert "workspace_candidates" in data
-    assert "bridges" in data
 
     # Flat convenience fields should exist
     assert "github_user" in data

@@ -93,29 +93,6 @@ class DistroSettingsUpdate(BaseModel):
     section: str | None = None
     values: dict[str, Any] = {}
 
-
-# ---------------------------------------------------------------------------
-# Bridge definitions
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class BridgeDefinition:
-    """Typed structure for a bridge integration."""
-
-    name: str
-    description: str
-    env_key: str
-
-
-BRIDGE_DEFINITIONS: dict[str, BridgeDefinition] = {
-    "discord": BridgeDefinition(
-        name="Discord",
-        description="Discord bot integration",
-        env_key="DISCORD_BOT_TOKEN",
-    ),
-}
-
 # Candidate directory names to scan under $HOME for workspace detection.
 _WORKSPACE_CANDIDATES = ("projects", "repos", "src", "code", "dev", "workspace")
 
@@ -140,20 +117,6 @@ def compute_phase(settings: DistroPluginSettings) -> str:
 
     return "detected"
 
-
-def detect_bridges(settings: DistroPluginSettings) -> dict[str, BridgeInfo]:
-    """Check which bridges have their required env keys set."""
-    # settings reserved for future config-based bridge detection
-    result: dict[str, BridgeInfo] = {}
-    for bridge_id, bridge in BRIDGE_DEFINITIONS.items():
-        result[bridge_id] = BridgeInfo(
-            name=bridge.name,
-            description=bridge.description,
-            available=bool(os.environ.get(bridge.env_key)),
-        )
-    return result
-
-
 def _get_current_provider(settings: DistroPluginSettings) -> dict[str, Any] | None:
     """Return the current primary provider info by matching overlay URIs."""
     current_uris = set(get_includes(settings))
@@ -172,7 +135,7 @@ def _get_current_provider(settings: DistroPluginSettings) -> dict[str, Any] | No
 def _build_status(settings: DistroPluginSettings) -> dict[str, Any]:
     """Compose the full status response dict.
 
-    Returns a dict with ``phase``, ``provider``, ``features``, and ``bridges``.
+    Returns a dict with ``phase``, ``provider``, and ``features``.
     ``features`` is a dict keyed by feature ID; every feature in the catalog
     is represented regardless of whether it is enabled, mirroring the original
     distro-server ``_build_status()`` behaviour.
@@ -180,7 +143,6 @@ def _build_status(settings: DistroPluginSettings) -> dict[str, Any]:
     phase = compute_phase(settings)
     provider = _get_current_provider(settings)
     enabled_set = set(get_enabled_features(settings))
-    bridges = detect_bridges(settings)
 
     features_dict: dict[str, Any] = {}
     for fid, feat in FEATURES.items():
@@ -195,7 +157,6 @@ def _build_status(settings: DistroPluginSettings) -> dict[str, Any]:
         "phase": phase,
         "provider": provider,
         "features": features_dict,
-        "bridges": bridges,
     }
 
 
@@ -306,12 +267,6 @@ def create_routes() -> APIRouter:
         settings = _get_settings(request)
         return _build_status(settings)
 
-    @router.get("/integrations")
-    async def get_integrations(request: Request) -> dict[str, BridgeInfo]:
-        """Return bridge integration status."""
-        settings = _get_settings(request)
-        return detect_bridges(settings)
-
     @router.get("/detect")
     async def get_detect(request: Request) -> dict[str, Any]:
         """Run environment detection and return comprehensive results."""
@@ -348,8 +303,6 @@ def create_routes() -> APIRouter:
             if os.path.isdir(candidate_path):
                 workspace_candidates.append(candidate_path)
 
-        bridges = detect_bridges(settings)
-
         # Load saved distro settings for pre-fill
         ds = load_distro_settings(settings)
         saved_root = (
@@ -364,7 +317,6 @@ def create_routes() -> APIRouter:
             "git": git,
             "api_keys": api_keys,
             "workspace_candidates": workspace_candidates,
-            "bridges": bridges,
             # Flat convenience fields
             "github_user": gh_user,
             "git_name": git_name,

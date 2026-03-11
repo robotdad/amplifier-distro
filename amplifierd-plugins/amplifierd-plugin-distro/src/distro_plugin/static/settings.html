@@ -817,7 +817,6 @@ const state = {
   status: null,
   detect: null,
   config: null,
-  integrations: null,
   memoryCount: null,
   workStatus: null,
   serverStatus: null,
@@ -869,11 +868,10 @@ async function coreApi(method, path, body) {
 /*  Load Data                                                          */
 /* ================================================================== */
 async function loadAll() {
-  const [statusData, detectData, configData, integrationsData, memoryData, workData, serverData, provData] = await Promise.all([
+  const [statusData, detectData, configData, memoryData, workData, serverData, provData] = await Promise.all([
     api('GET', '/preflight'),
     fetch('/distro/detect').then(r => r.ok ? r.json() : { error: 'HTTP ' + r.status }).catch(() => ({ error: true })),
     api('GET', '/distro-settings'),
-    api('GET', '/integrations'),
     coreApi('GET', '/memory/stats').catch(() => ({ error: true })),
     coreApi('GET', '/memory/work-status'),
     api('GET', '/preflight'),
@@ -882,7 +880,6 @@ async function loadAll() {
   state.status = statusData.error ? null : statusData;
   state.detect = detectData.error ? null : detectData;
   state.config = (configData && !configData.error && configData.settings) ? configData.settings : null;
-  state.integrations = integrationsData.error ? null : integrationsData;
   state.memoryCount = (memoryData && !memoryData.error && memoryData.count != null) ? memoryData.count : null;
   state.workStatus = (workData && !workData.error) ? workData : null;
   state.serverStatus = (serverData && !serverData.error) ? serverData : null;
@@ -1069,8 +1066,6 @@ function render() {
     + renderTierAction(2, tier2)
     + '<hr class="section-divider">'
     + renderMemoryStats()
-    + '<hr class="section-divider">'
-    + renderIntegrations()
     + '<hr class="section-divider">'
     + renderPreflightChecks()
     + renderFooter();
@@ -1376,46 +1371,6 @@ function renderMemoryStats() {
     + '<div class="stat-label">Last Update</div>'
     + '</div>'
     + '</div></div>';
-}
-
-/* ------------------------------------------------------------------ */
-/*  Integrations                                                       */
-/* ------------------------------------------------------------------ */
-function renderIntegrations() {
-  const integrations = state.integrations || {};
-  const items = Object.entries(integrations);
-
-  let html = '<div class="section">'
-    + '<div class="section-title">Integrations</div>';
-
-  if (items.length === 0) {
-    html += '<div style="color: var(--ink-slate); font-size: 13px; padding: 12px 0;">'
-      + 'No integrations configured.'
-      + '</div>';
-  } else {
-    html += '<div class="feature-list">';
-    items.forEach(([key, data]) => {
-      const name = data.name || key;
-      const desc = data.description || '';
-      const setupUrl = data.setup_url || '#';
-      const status = data.status || 'not_configured';
-      const statusClass = status === 'configured' ? 'configured' : 'not-configured';
-      const statusLabel = status === 'configured' ? 'Configured' : 'Not Configured';
-
-      html += '<a href="' + esc(setupUrl) + '" class="integration-row" style="cursor: pointer;">'
-        + '<div class="feature-info">'
-        + '<div class="feature-name">' + esc(name) + '</div>'
-        + '<div class="feature-desc">' + esc(desc) + '</div>'
-        + '</div>'
-        + '<span class="integration-status ' + statusClass + '">' + statusLabel + '</span>'
-        + '<span class="integration-link">Configure &rarr;</span>'
-        + '</a>';
-    });
-    html += '</div>';
-  }
-
-  html += '</div>';
-  return html;
 }
 
 /* ------------------------------------------------------------------ */
