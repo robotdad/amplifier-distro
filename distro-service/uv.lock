@@ -108,7 +108,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "amplifierd-plugin-chat"
 version = "0.1.0"
-source = { git = "https://github.com/microsoft/amplifierd-plugin-chat?rev=main#9ccfedc0e3cc41d18070bd6862cf768b7510f6d8" }
+source = { git = "https://github.com/microsoft/amplifierd-plugin-chat?rev=main#3b777ddc5a63ccd79c03e45ee8aa6f69bb0145c0" }
 dependencies = [
     { name = "fastapi" },
     { name = "pydantic" },
