@@ -122,6 +122,7 @@ def serve(
         reload=reload,
         log_level=log_level,
         home_redirect="/distro/",  # Enable distro dashboard
+        auth_by_default=True,
     )
 
 
@@ -135,6 +136,8 @@ def _start_server(
     reload: bool,
     log_level: str | None,
     home_redirect: str | None,
+    *,
+    auth_by_default: bool = False,
 ) -> None:
     """Common server startup logic."""
     # --ssl-certfile implies manual TLS mode when tls_mode is still default
@@ -149,10 +152,10 @@ def _start_server(
 
     os.environ.setdefault("AMPLIFIERD_TLS_MODE", tls_mode)
 
-    if not no_auth:
-        os.environ.setdefault("AMPLIFIERD_AUTH_ENABLED", "true")
-    else:
+    if no_auth:
         os.environ["AMPLIFIERD_AUTH_ENABLED"] = "false"
+    elif auth_by_default:
+        os.environ.setdefault("AMPLIFIERD_AUTH_ENABLED", "true")
 
     # Delegate to amplifierd's serve command
     from amplifierd.cli import serve as amplifierd_serve
