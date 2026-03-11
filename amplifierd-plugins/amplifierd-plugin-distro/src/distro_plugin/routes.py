@@ -315,6 +315,12 @@ def create_routes() -> APIRouter:
         settings = _get_settings(request)
         return _build_status(settings)
 
+    @router.get("/integrations")
+    async def get_integrations(request: Request) -> dict[str, BridgeInfo]:
+        """Return bridge integration status."""
+        settings = _get_settings(request)
+        return detect_bridges(settings)
+
     @router.get("/detect")
     async def get_detect(request: Request) -> dict[str, Any]:
         """Run environment detection and return comprehensive results."""

@@ -873,10 +873,10 @@ async function loadAll() {
     api('GET', '/status'),
     fetch('/distro/detect').then(r => r.ok ? r.json() : { error: 'HTTP ' + r.status }).catch(() => ({ error: true })),
     api('GET', '/distro-settings'),
-    coreApi('GET', '/integrations'),
+    api('GET', '/integrations'),
     coreApi('GET', '/memory/stats').catch(() => ({ error: true })),
     coreApi('GET', '/memory/work-status'),
-    coreApi('GET', '/status'),
+    api('GET', '/status'),
     api('GET', '/providers'),
   ]);
   state.status = statusData.error ? null : statusData;
