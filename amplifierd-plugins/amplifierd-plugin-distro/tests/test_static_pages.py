@@ -136,3 +136,94 @@ def test_wizard_finish_buttons_go_to_distro():
     content = (_STATIC_DIR / "wizard.html").read_text()
     assert "window.location.href='/distro/'" in content
     assert "window.location.href='/'" not in content
+
+
+# ---------------------------------------------------------------------------
+# Loading screen during bundle prewarm
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Root redirect (GET /)
+# ---------------------------------------------------------------------------
+
+
+def test_root_redirects_to_chat_when_configured(app, client, settings):
+    """GET / redirects to /chat/ when overlay exists (configured)."""
+    import asyncio
+
+    event = asyncio.Event()
+    event.set()
+    app.state.bundles_ready = event
+
+    overlay_path = settings.distro_home / "bundle" / "bundle.yaml"
+    overlay_path.parent.mkdir(parents=True, exist_ok=True)
+    overlay_path.write_text("bundle: {name: test}\n")
+
+    resp = client.get("/", follow_redirects=False)
+    assert resp.status_code == 307
+    assert resp.headers["location"] == "/chat/"
+
+
+def test_root_redirects_to_setup_when_unconfigured(client):
+    """GET / redirects to /distro/setup when no overlay (unconfigured)."""
+    resp = client.get("/", follow_redirects=False)
+    assert resp.status_code == 307
+    assert "/distro/setup" in resp.headers["location"]
+
+
+def test_root_redirects_to_distro_during_prewarm(app, client):
+    """GET / redirects to /distro/ during prewarm (which serves loading screen)."""
+    import asyncio
+
+    app.state.bundles_ready = asyncio.Event()  # unset = still loading
+    resp = client.get("/", follow_redirects=False)
+    assert resp.status_code == 307
+    assert resp.headers["location"] == "/distro/"
+
+
+# ---------------------------------------------------------------------------
+# Loading screen during bundle prewarm
+# ---------------------------------------------------------------------------
+
+
+def test_dashboard_serves_loading_when_not_ready(app, client):
+    """GET /distro/ serves loading.html when bundles_ready event is unset."""
+    import asyncio
+
+    app.state.bundles_ready = asyncio.Event()  # unset = still loading
+    resp = client.get("/distro/", follow_redirects=False)
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers.get("content-type", "")
+    assert "starting up" in resp.text.lower()
+
+
+def test_dashboard_serves_dashboard_when_ready(app, client, settings):
+    """GET /distro/ serves dashboard when bundles_ready event is set."""
+    import asyncio
+
+    event = asyncio.Event()
+    event.set()
+    app.state.bundles_ready = event
+
+    # Create overlay so compute_phase != "unconfigured"
+    overlay_path = settings.distro_home / "bundle" / "bundle.yaml"
+    overlay_path.parent.mkdir(parents=True, exist_ok=True)
+    overlay_path.write_text("bundle: {name: test}\n")
+
+    resp = client.get("/distro/")
+    assert resp.status_code == 200
+    assert "starting up" not in resp.text.lower()
+
+
+def test_dashboard_works_without_bundles_ready(client, settings):
+    """GET /distro/ works normally when bundles_ready is not on app.state (backward compat)."""
+    # No bundles_ready set on app.state — should fall through to normal behavior
+    overlay_path = settings.distro_home / "bundle" / "bundle.yaml"
+    overlay_path.parent.mkdir(parents=True, exist_ok=True)
+    overlay_path.write_text("bundle: {name: test}\n")
+
+    resp = client.get("/distro/")
+    assert resp.status_code == 200
+    # Should serve the real dashboard, not the loading screen
+    assert "starting up" not in resp.text.lower()

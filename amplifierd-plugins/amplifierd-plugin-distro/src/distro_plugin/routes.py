@@ -41,6 +41,7 @@ from distro_plugin.providers import (
     handle_provider_request,
     sync_providers,
 )
+from distro_plugin.reload import request_reload
 
 logger = logging.getLogger(__name__)
 
@@ -243,6 +244,22 @@ def create_routes() -> APIRouter:
     # path prefix.
     outer = APIRouter()
 
+    @outer.get("/", include_in_schema=False)
+    async def root_redirect(request: Request) -> RedirectResponse:
+        """Redirect / to the appropriate destination based on setup phase."""
+        # During prewarm, send to /distro/ which serves the loading screen
+        bundles_ready = getattr(request.app.state, "bundles_ready", None)
+        if bundles_ready and not bundles_ready.is_set():
+            return RedirectResponse(url="/distro/")
+
+        try:
+            settings = _get_settings(request)
+            if compute_phase(settings) == "unconfigured":
+                return RedirectResponse(url="/distro/setup")
+        except Exception:
+            pass
+        return RedirectResponse(url="/chat/")
+
     @outer.get("/favicon.svg", include_in_schema=False)
     async def get_favicon() -> FileResponse:
         """Serve the SVG favicon from the bundled static directory."""
@@ -346,6 +363,7 @@ def create_routes() -> APIRouter:
         )
         if result.get("status") == "error":
             raise HTTPException(status_code=400, detail=result.get("detail", ""))
+        request_reload(request.app)
         return result
 
     @router.get("/preflight")
@@ -533,14 +551,14 @@ def create_routes() -> APIRouter:
                 dep = FEATURES.get(dep_id)
                 if dep:
                     for inc in dep.includes:
-                        add_include(settings, inc)
+                        add_include(settings, inc, app=request.app)
             for inc in feature.includes:
-                add_include(settings, inc)
+                add_include(settings, inc, app=request.app)
         else:
             # Disable: remove only this feature's includes (dependencies may be
             # shared by other enabled features, so leave them in place).
             for inc in feature.includes:
-                remove_include(settings, inc)
+                remove_include(settings, inc, app=request.app)
 
         return _build_status(settings)
 
@@ -556,7 +574,7 @@ def create_routes() -> APIRouter:
             feat = FEATURES.get(fid)
             if feat:
                 for inc in feat.includes:
-                    add_include(settings, inc)
+                    add_include(settings, inc, app=request.app)
         return {"status": "ok", "tier": body.tier, "features_enabled": feature_ids}
 
     # ------------------------------------------------------------------
@@ -594,12 +612,12 @@ def create_routes() -> APIRouter:
                     dep = FEATURES.get(dep_id)
                     if dep:
                         for inc in dep.includes:
-                            add_include(settings, inc)
+                            add_include(settings, inc, app=request.app)
                 for inc in feat.includes:
-                    add_include(settings, inc)
+                    add_include(settings, inc, app=request.app)
             else:
                 for inc in feat.includes:
-                    remove_include(settings, inc)
+                    remove_include(settings, inc, app=request.app)
         return {"status": "ok"}
 
     @router.post("/setup/steps/interfaces")
@@ -629,9 +647,12 @@ def create_routes() -> APIRouter:
             )
             if result.get("status") == "error":
                 raise HTTPException(status_code=400, detail=result.get("detail", ""))
+            request_reload(request.app)
             return result
         # Sync mode: auto-register providers from environment keys
         results = sync_providers(settings)
+        if results:
+            request_reload(request.app)
         return {"status": "ok", "synced": len(results)}
 
     @router.post("/setup/steps/verify")
@@ -686,6 +707,19 @@ def create_routes() -> APIRouter:
     @router.get("/", response_model=None)
     async def get_dashboard(request: Request) -> HTMLResponse | RedirectResponse:
         """Serve the dashboard landing page, or redirect to setup if unconfigured."""
+        # Serve loading screen while bundle prewarm is in progress
+        bundles_ready = getattr(request.app.state, "bundles_ready", None)
+        if bundles_ready and not bundles_ready.is_set():
+            loading_path = _STATIC_DIR / "loading.html"
+            try:
+                return HTMLResponse(content=loading_path.read_text())
+            except OSError:
+                return HTMLResponse(
+                    content="<h1>Starting up&hellip;</h1><p>Preparing your environment.</p>",
+                    status_code=503,
+                    headers={"Retry-After": "5"},
+                )
+
         settings = _get_settings(request)
         if compute_phase(settings) == "unconfigured":
             return RedirectResponse(url="/distro/setup")

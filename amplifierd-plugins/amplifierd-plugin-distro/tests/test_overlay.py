@@ -265,6 +265,61 @@ def test_migrate_overlay_noop_when_already_current(settings):
     )
 
 
+# -- reload wiring -----------------------------------------------------------
+
+
+def test_add_include_triggers_reload_when_app_provided(settings, monkeypatch):
+    """add_include calls request_reload when app is provided."""
+    import distro_plugin.reload as reload_mod
+
+    mock_app = object()
+    calls = []
+
+    monkeypatch.setattr(reload_mod, "request_reload", lambda app: calls.append(app))
+
+    add_include(settings, "git+https://example.com/feature@main", app=mock_app)
+
+    assert calls == [mock_app], "request_reload should be called with the app"
+
+
+def test_add_include_works_without_app(settings):
+    """add_include works normally when app is not provided (backward compat)."""
+    # Should not raise — no reload triggered
+    add_include(settings, "git+https://example.com/feature@main")
+    assert "git+https://example.com/feature@main" in get_includes(settings)
+
+
+def test_remove_include_triggers_reload_when_app_provided(settings, monkeypatch):
+    """remove_include calls request_reload when app is provided."""
+    import yaml
+
+    import distro_plugin.reload as reload_mod
+
+    path = settings.distro_home / "bundle" / "bundle.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        yaml.dump(
+            {
+                "includes": [
+                    {"bundle": "git+https://example.com/distro@main"},
+                    {"bundle": "git+https://example.com/feature@main"},
+                ]
+            },
+            default_flow_style=False,
+            sort_keys=False,
+        )
+    )
+
+    mock_app = object()
+    calls = []
+
+    monkeypatch.setattr(reload_mod, "request_reload", lambda app: calls.append(app))
+
+    remove_include(settings, "git+https://example.com/feature@main", app=mock_app)
+
+    assert calls == [mock_app], "request_reload should be called with the app"
+
+
 def test_add_include_on_existing_overlay_with_stale_uri_migrates(settings):
     """add_include migrates stale URIs in an existing overlay before adding."""
     from distro_plugin.overlay import (

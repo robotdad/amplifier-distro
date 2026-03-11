@@ -24,8 +24,19 @@ def create_router(state: Any) -> APIRouter:
     settings = DistroPluginSettings()
     state.distro = SimpleNamespace(settings=settings)
 
-    from distro_plugin.overlay import migrate_overlay
+    from distro_plugin.overlay import migrate_overlay, overlay_exists
 
     migrate_overlay(settings)
+
+    # Register the overlay bundle as "distro", shadowing the well-known git URI.
+    # This ensures prewarm and session creation use the user's customized bundle
+    # (with their selected providers and features) instead of the raw upstream.
+    # The overlay's bundle.yaml includes the upstream distro bundle via includes:.
+    bundle_registry = getattr(state, "bundle_registry", None)
+    if bundle_registry and overlay_exists(settings):
+        from pathlib import Path
+
+        overlay_dir = str(Path(settings.distro_home) / "bundle")
+        bundle_registry.register({"distro": overlay_dir})
 
     return create_routes()

@@ -75,11 +75,20 @@ def _overlay_path(settings: DistroPluginSettings) -> Path:
     return Path(settings.distro_home) / "bundle" / "bundle.yaml"
 
 
-def _write_overlay(settings: DistroPluginSettings, data: dict[str, Any]) -> Path:
+def _write_overlay(
+    settings: DistroPluginSettings, data: dict[str, Any], *, app: Any = None
+) -> Path:
     """Write the overlay bundle.yaml to disk."""
     path = _overlay_path(settings)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.dump(data, default_flow_style=False, sort_keys=False))
+
+    # Trigger debounced bundle reload if app is available
+    if app is not None:
+        from distro_plugin.reload import request_reload
+
+        request_reload(app)
+
     return path
 
 
@@ -184,12 +193,15 @@ def migrate_overlay(settings: DistroPluginSettings) -> None:
         logger.info("Overlay migrated: stale URIs replaced with current equivalents")
 
 
-def add_include(settings: DistroPluginSettings, uri: str) -> None:
+def add_include(settings: DistroPluginSettings, uri: str, *, app: Any = None) -> None:
     """Add a bundle include to the overlay (idempotent).
 
     If the overlay does not exist it is bootstrapped with the distro
     bundle URI as the first include.  On existing overlays, stale URIs
     are migrated and ``_DISTRO_BUNDLE_URI`` is ensured to be present.
+
+    When *app* is provided, a debounced bundle reload is triggered after
+    writing via :func:`distro_plugin.reload.request_reload`.
     """
     data = read_overlay(settings)
 
@@ -222,14 +234,20 @@ def add_include(settings: DistroPluginSettings, uri: str) -> None:
     if uri not in current_uris:
         data.setdefault("includes", []).append({"bundle": uri})
 
-    _write_overlay(settings, data)
+    _write_overlay(settings, data, app=app)
 
 
-def remove_include(settings: DistroPluginSettings, uri: str) -> None:
-    """Remove a bundle include from the overlay."""
+def remove_include(
+    settings: DistroPluginSettings, uri: str, *, app: Any = None
+) -> None:
+    """Remove a bundle include from the overlay.
+
+    When *app* is provided, a debounced bundle reload is triggered after
+    writing via :func:`distro_plugin.reload.request_reload`.
+    """
     data = read_overlay(settings)
     if not data:
         return
 
     data["includes"] = _filter_includes(data.get("includes", []), uri)
-    _write_overlay(settings, data)
+    _write_overlay(settings, data, app=app)

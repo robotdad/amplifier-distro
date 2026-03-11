@@ -157,7 +157,17 @@ def _start_server(
     elif auth_by_default:
         os.environ.setdefault("AMPLIFIERD_AUTH_ENABLED", "true")
 
-    # Delegate to amplifierd's serve command
+    # ssl_certfile / ssl_keyfile: amplifierd doesn't accept these as CLI params yet.
+    # Stash them in env vars so future amplifierd versions can pick them up via
+    # DaemonSettings (AMPLIFIERD_SSL_CERTFILE / AMPLIFIERD_SSL_KEYFILE).
+    if ssl_certfile:
+        os.environ.setdefault("AMPLIFIERD_SSL_CERTFILE", ssl_certfile)
+    if ssl_keyfile:
+        os.environ.setdefault("AMPLIFIERD_SSL_KEYFILE", ssl_keyfile)
+
+    # Delegate to amplifierd's serve command.
+    # Only pass params that amplifierd's serve() click command actually declares.
+    # TLS mode, auth, and SSL paths are communicated via AMPLIFIERD_* env vars above.
     from amplifierd.cli import serve as amplifierd_serve
 
     ctx = click.get_current_context()
@@ -169,11 +179,6 @@ def _start_server(
         log_level=log_level,
         bundle=(),
         default_bundle=None,
-        api_key=None,
-        tls_mode=None,  # Set via env var above
-        ssl_certfile=ssl_certfile,
-        ssl_keyfile=ssl_keyfile,
-        no_auth=no_auth,
     )
 
 
