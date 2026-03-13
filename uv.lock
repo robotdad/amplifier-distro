@@ -146,9 +146,10 @@ requires-dist = [
 [[package]]
 name = "amplifier-chat"
 version = "0.1.0"
-source = { git = "https://github.com/microsoft/amplifier-chat?branch=main#1e8121ef893b19f86d8a81a6380657a9fccb2337" }
+source = { git = "https://github.com/microsoft/amplifier-chat?branch=main#7d8e1d28c74096b863d3b9239fec3a0de6d7887f" }
 dependencies = [
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pyyaml" },
@@ -189,9 +190,9 @@ version = "0.0.0"
 source = { virtual = "." }
 
 [[package]]
-name = "amplifier-lib"
-version = "0.1.0"
-source = { git = "https://github.com/microsoft/amplifier-lib?branch=main#cc0d8bd45b0719e396812906adb7dbd44fe48004" }
+name = "amplifier-foundation"
+version = "1.0.0"
+source = { git = "https://github.com/microsoft/amplifier-foundation?branch=main#0a3974053d7968851dbb062074fde27cb0a8dec8" }
 dependencies = [
     { name = "amplifier-core" },
     { name = "pyyaml" },
@@ -200,10 +201,10 @@ dependencies = [
 [[package]]
 name = "amplifierd"
 version = "0.1.0"
-source = { git = "https://github.com/microsoft/amplifierd?branch=main#782f9de5b0f59f4cfd71e12d31013f5eec6383e9" }
+source = { git = "https://github.com/microsoft/amplifierd?branch=main#1bd9b24d31360d4b0145aa00750c48ea08da13c8" }
 dependencies = [
     { name = "amplifier-core" },
-    { name = "amplifier-lib" },
+    { name = "amplifier-foundation" },
     { name = "click" },
     { name = "fastapi" },
     { name = "pydantic" },
