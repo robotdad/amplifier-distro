@@ -104,6 +104,22 @@ class WatchdogSettings:
 
 
 @dataclass
+class TlsSettings:
+    """TLS configuration for the distro server."""
+
+    mode: str = "off"
+    certfile: str = ""
+    keyfile: str = ""
+
+
+@dataclass
+class ServerSettings:
+    """Server runtime configuration."""
+
+    tls: TlsSettings = field(default_factory=TlsSettings)
+
+
+@dataclass
 class DistroSettings:
     """Root settings object for the distro experience layer."""
 
@@ -113,6 +129,7 @@ class DistroSettings:
     slack: SlackSettings = field(default_factory=SlackSettings)
     voice: VoiceSettings = field(default_factory=VoiceSettings)
     watchdog: WatchdogSettings = field(default_factory=WatchdogSettings)
+    server: ServerSettings = field(default_factory=ServerSettings)
 
 
 # ---------------------------------------------------------------------------

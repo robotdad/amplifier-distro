@@ -12,7 +12,7 @@ import logging
 import os
 import platform
 import shutil
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, TypedDict
 

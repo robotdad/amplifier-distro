@@ -54,7 +54,7 @@ jobs:
 
       - name: Type check
         working-directory: distro-service
-        run: uvx pyright src/
+        run: uv run --with pyright pyright src/
 
   service:
     name: Service Boot

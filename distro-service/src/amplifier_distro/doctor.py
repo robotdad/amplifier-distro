@@ -24,7 +24,8 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field
 
-from . import conventions, tailscale
+from . import conventions
+from amplifierd.security import tailscale
 from .distro_settings import load as load_settings
 from .server.daemon import is_running, read_pid
 
