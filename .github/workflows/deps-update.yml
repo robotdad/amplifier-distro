@@ -1,8 +1,11 @@
 name: Dependency Updates
 
 on:
-  schedule:
-    - cron: "0 14 * * *" # Daily 6am PT (14:00 UTC)
+  # schedule:
+  #   - cron: "0 14 * * *" # Daily 6am PT (14:00 UTC)
+  # DISABLED: Scheduled runs fail because the microsoft org does not allow
+  # GITHUB_TOKEN to create pull requests. Re-enable once a PAT or GitHub App
+  # token is configured, or the org policy changes.
   workflow_dispatch: # Allow manual trigger
 
 permissions:
