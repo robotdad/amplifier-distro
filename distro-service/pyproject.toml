@@ -7,7 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "amplifierd",
     "amplifierd-plugin-distro",
-    "amplifier-chat",
+    "amplifier-chat[voice]",
     "amplifierd-plugin-slack",
     "amplifierd-plugin-voice",
     "amplifierd-plugin-auth",
