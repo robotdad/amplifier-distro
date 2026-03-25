@@ -1,7 +1,7 @@
 # amplifier-distro/distro-service/pyproject.toml
 [project]
 name = "amp-distro"
-version = "0.1.0"
+version = "0.1.1"
 description = "Amplifier distro — amplifierd + distro plugin"
 requires-python = ">=3.12"
 dependencies = [
