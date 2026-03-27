@@ -201,6 +201,55 @@ def detect_provider(api_key: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 
+def _normalize_url(url: str) -> str:
+    """Normalize a URL for comparison by stripping trailing slashes."""
+    return url.rstrip("/")
+
+
+def _find_existing_entry(
+    providers_list: list[dict[str, Any]], provider: Provider
+) -> dict[str, Any] | None:
+    """Find an existing provider entry, supporting both id-based and legacy module-based matching.
+
+    New entries (written by this module) have an ``id`` field.  Legacy entries
+    written by ``amplifier-app-cli`` only have a ``module`` field and no ``id``.
+
+    For modules shared by multiple providers (``provider-openai`` is used by
+    both ``openai`` and ``xai``), disambiguation is done via ``config.base_url``:
+    xAI entries have a ``base_url``; OpenAI entries do not.  For all other
+    modules a module-name match alone is sufficient, regardless of any custom
+    ``base_url`` the user may have added to their config block.
+    """
+    for entry in providers_list:
+        # New format: match by id (fast path, exact)
+        if entry.get("id") == provider.id:
+            return entry
+
+        # Legacy format: no id field present — fall back to module matching
+        if entry.get("id") is not None:
+            continue
+        if entry.get("module") != provider.module_id:
+            continue
+
+        # Module matches.  Disambiguate only for provider-openai, which is
+        # shared between openai (no base_url) and xai (has base_url).
+        if provider.module_id == "provider-openai":
+            entry_base_url = entry.get("config", {}).get("base_url")
+            if provider.base_url and entry_base_url:
+                # Both have base_url — must agree
+                if _normalize_url(entry_base_url) == _normalize_url(provider.base_url):
+                    return entry
+            elif not provider.base_url and not entry_base_url:
+                # Neither has base_url — module match is sufficient
+                return entry
+            # One has base_url and the other doesn't — different providers
+        else:
+            # All other modules are unique — module name alone is sufficient
+            return entry
+
+    return None
+
+
 def _keys_path(settings: DistroPluginSettings) -> Path:
     return Path(settings.amplifier_home) / "keys.env"
 
@@ -305,12 +354,20 @@ def add_provider_config(settings: DistroPluginSettings, provider_id: str) -> Non
     config = data.setdefault("config", {})
     providers_list: list[dict[str, Any]] = config.setdefault("providers", [])
 
-    # Idempotency is keyed on the provider catalog ``id`` (e.g. "xai",
-    # "openai") so that providers sharing a module (like xAI and OpenAI,
-    # both using ``provider-openai``) get separate entries.
-    for entry in providers_list:
-        if entry.get("id") == provider.id:
-            return
+    # Idempotency: skip if an equivalent entry already exists.
+    # Supports both new-format entries (have an ``id`` field) and legacy
+    # entries written by amplifier-app-cli (only have a ``module`` field).
+    # When a matching legacy entry is found, its ``id`` field is stamped
+    # in-place so future lookups use the fast id-based path.
+    existing = _find_existing_entry(providers_list, provider)
+    if existing is not None:
+        if existing.get("id") is None:
+            # Migrate legacy entry: stamp the canonical id for future idempotency
+            existing["id"] = provider.id
+            settings_path.write_text(
+                yaml.dump(data, default_flow_style=False, sort_keys=False)
+            )
+        return
 
     config_block: dict[str, Any] = {
         "default_model": provider.default_model,
@@ -409,7 +466,7 @@ def check_provider_status(
         try:
             data = yaml.safe_load(settings_path.read_text()) or {}
             providers_list = data.get("config", {}).get("providers", [])
-            in_settings = any(e.get("id") == provider.id for e in providers_list)
+            in_settings = _find_existing_entry(providers_list, provider) is not None
         except (yaml.YAMLError, OSError):
             pass
 
