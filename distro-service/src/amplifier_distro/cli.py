@@ -179,6 +179,13 @@ def _start_server(
         )
         raise SystemExit(1)
 
+    # Pre-startup summary — gives the user something to see while bundles load.
+    scheme = "https" if tls_mode != "off" else "http"
+    click.echo(
+        f"\n  amp-distro starting on {scheme}://{host}:{effective_port}\n"
+        f"  Bundle loading may take a minute on first run.\n"
+    )
+
     # Write PID file so doctor and other tools can find the running server.
     pid_path = (
         Path(conventions.AMPLIFIER_HOME).expanduser()
@@ -205,6 +212,9 @@ def _start_server(
         )
     finally:
         remove_pid(pid_path)
+
+    # Post-shutdown message — confirms clean exit.
+    click.echo(f"\n  amp-distro stopped ({host}:{effective_port}).\n")
 
 
 # -- Backup commands -----------------------------------------------------

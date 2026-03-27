@@ -39,4 +39,18 @@ def create_router(state: Any) -> APIRouter:
         overlay_dir = str(Path(settings.distro_home) / "bundle")
         bundle_registry.register({"distro": overlay_dir})
 
+    # Best-effort check for unreachable feature bundle URIs.
+    # Warnings are logged so they appear in the startup output, surfacing
+    # broken features (e.g. non-existent repos) that would otherwise fail
+    # silently during the bundle loading phase.
+    from distro_plugin.features import check_feature_uris
+
+    uri_warnings = check_feature_uris(settings)
+    if uri_warnings:
+        import logging
+
+        logger = logging.getLogger(__name__)
+        for w in uri_warnings:
+            logger.warning("Feature URI check: %s", w)
+
     return create_routes()

@@ -118,3 +118,39 @@ def get_enabled_features(settings: DistroPluginSettings) -> list[str]:
         for fid, feature in FEATURES.items()
         if all(inc in current_uris for inc in feature.includes)
     ]
+
+
+def check_feature_uris(settings: DistroPluginSettings) -> list[str]:
+    """Check enabled features for unreachable git URIs.
+
+    Returns a list of human-readable warnings for any enabled feature
+    whose bundle URI cannot be reached. This is a best-effort check
+    using HTTP HEAD requests — network errors are silently ignored.
+    """
+    import logging
+    import urllib.request
+
+    logger = logging.getLogger(__name__)
+    enabled = get_enabled_features(settings)
+    warnings: list[str] = []
+
+    for fid in enabled:
+        feat = FEATURES[fid]
+        for uri in feat.includes:
+            # Extract the GitHub repo URL from the git+ URI
+            # e.g. "git+https://github.com/org/repo@main#sub=..." -> "https://github.com/org/repo"
+            repo_url = uri
+            if repo_url.startswith("git+"):
+                repo_url = repo_url[4:]
+            repo_url = repo_url.split("@")[0].split("#")[0]
+
+            try:
+                req = urllib.request.Request(repo_url, method="HEAD")
+                with urllib.request.urlopen(req, timeout=5):
+                    pass  # 2xx = reachable
+            except Exception:
+                msg = f"Feature '{feat.name}' ({fid}): bundle may be unreachable — {repo_url}"
+                warnings.append(msg)
+                logger.warning(msg)
+
+    return warnings
