@@ -165,21 +165,46 @@ def _start_server(
     if ssl_keyfile:
         os.environ.setdefault("AMPLIFIERD_SSL_KEYFILE", ssl_keyfile)
 
+    # Pre-flight port check — fail early with a clear message instead of
+    # letting amplifierd silently fall back to a different port.
+    from .server.daemon import check_port, remove_pid, write_pid
+
+    effective_port = port if port is not None else conventions.SERVER_DEFAULT_PORT
+    if not check_port(host, effective_port):
+        click.echo(
+            f"\nError: Port {effective_port} is already in use.\n"
+            f"A previous amp-distro instance may still be shutting down.\n"
+            f"Wait a moment and try again, or use --port to specify a different port.\n",
+            err=True,
+        )
+        raise SystemExit(1)
+
+    # Write PID file so doctor and other tools can find the running server.
+    pid_path = (
+        Path(conventions.AMPLIFIER_HOME).expanduser()
+        / conventions.SERVER_DIR
+        / conventions.SERVER_PID_FILE
+    )
+    write_pid(pid_path)
+
     # Delegate to amplifierd's serve command.
     # Only pass params that amplifierd's serve() click command actually declares.
     # TLS mode, auth, and SSL paths are communicated via AMPLIFIERD_* env vars above.
     from amplifierd.cli import serve as amplifierd_serve
 
     ctx = click.get_current_context()
-    ctx.invoke(
-        amplifierd_serve,
-        host=host,
-        port=port,
-        reload=reload,
-        log_level=log_level,
-        bundle=(),
-        default_bundle=None,
-    )
+    try:
+        ctx.invoke(
+            amplifierd_serve,
+            host=host,
+            port=port,
+            reload=reload,
+            log_level=log_level,
+            bundle=(),
+            default_bundle=None,
+        )
+    finally:
+        remove_pid(pid_path)
 
 
 # -- Backup commands -----------------------------------------------------
