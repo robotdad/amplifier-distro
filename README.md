@@ -22,6 +22,14 @@ amp-distro serve
 
 Open [http://localhost:8410](http://localhost:8410) to begin.
 
+## Update
+
+```bash
+uv tool upgrade amp-distro
+```
+
+Restart `amp-distro` after upgrading to use the new version.
+
 ## Experience Apps
 
 Multiple front-ends into the same Amplifier runtime — sessions, memory, and context are shared across all of them.
