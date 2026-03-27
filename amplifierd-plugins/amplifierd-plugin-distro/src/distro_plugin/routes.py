@@ -617,6 +617,10 @@ def create_routes() -> APIRouter:
                             add_include(settings, inc, app=request.app)
                 for inc in feat.includes:
                     add_include(settings, inc, app=request.app)
+                # Provision required directories for features that need them.
+                if feat.category == "memory":
+                    memory_dir = Path(settings.amplifier_home) / "memory"
+                    memory_dir.mkdir(parents=True, exist_ok=True)
             else:
                 for inc in feat.includes:
                     remove_include(settings, inc, app=request.app)

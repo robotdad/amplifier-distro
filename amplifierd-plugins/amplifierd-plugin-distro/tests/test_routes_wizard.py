@@ -291,3 +291,29 @@ def test_step_interfaces_uses_shutil_which_for_installed_flag(client, monkeypatc
     assert data["tui_installed"] is False, (
         "tui_installed must reflect shutil.which, not uv exit code"
     )
+
+
+# ---------------------------------------------------------------------------
+# Fix 2: step_modules provisions memory directory for dev-memory feature
+# ---------------------------------------------------------------------------
+
+
+def test_step_modules_creates_memory_dir_for_dev_memory(client, settings):
+    """Enabling dev-memory feature should create the ~/.amplifier/memory/ directory.
+
+    Regression test for the Fix 2 provisioning change: after the include loop,
+    step_modules() must mkdir(parents=True) when feat.category == "memory" so
+    that the doctor _check_memory_dir() check passes immediately after setup.
+    """
+    memory_dir = settings.amplifier_home / "memory"
+    assert not memory_dir.exists(), "pre-condition: memory dir must not exist yet"
+
+    resp = client.post(
+        "/distro/setup/steps/modules",
+        json={"modules": ["dev-memory"]},
+    )
+    assert resp.status_code == 200
+    assert resp.json().get("status") == "ok"
+    assert memory_dir.exists(), (
+        "step_modules must create the memory directory when dev-memory is enabled"
+    )
