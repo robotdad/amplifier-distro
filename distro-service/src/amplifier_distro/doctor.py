@@ -319,13 +319,13 @@ def _check_git_configured() -> DiagnosticCheck:
     """Check that git user.name and user.email are configured."""
     try:
         name_result = subprocess.run(
-            ["git", "config", "user.name"],
+            ["git", "config", "--global", "user.name"],
             capture_output=True,
             text=True,
             timeout=5,
         )
         email_result = subprocess.run(
-            ["git", "config", "user.email"],
+            ["git", "config", "--global", "user.email"],
             capture_output=True,
             text=True,
             timeout=5,
@@ -424,29 +424,33 @@ def _check_slack_configured(home: Path) -> DiagnosticCheck:
 
 
 def _check_voice_configured(home: Path) -> DiagnosticCheck:
-    """Check that voice has an OpenAI API key available.
+    """Check that voice has an OpenAI-compatible API key available.
 
-    Checks environment first, then keys.env (KEY=VALUE format).
+    Accepts either OPENAI_API_KEY (direct OpenAI) or AZURE_OPENAI_API_KEY
+    (Azure OpenAI). Checks environment first, then keys.env.
     """
-    if os.environ.get("OPENAI_API_KEY"):
-        return DiagnosticCheck(
-            name="Voice config",
-            status=CheckStatus.ok,
-            message="OPENAI_API_KEY set in environment",
-        )
-    keys_path = home / conventions.KEYS_FILENAME
-    if keys_path.exists():
-        keys = _read_keys_env(keys_path)
-        if keys.get("OPENAI_API_KEY"):
+    voice_keys = ("OPENAI_API_KEY", "AZURE_OPENAI_API_KEY")
+    for key_name in voice_keys:
+        if os.environ.get(key_name):
             return DiagnosticCheck(
                 name="Voice config",
                 status=CheckStatus.ok,
-                message="OPENAI_API_KEY found in keys.env",
+                message=f"{key_name} set in environment",
             )
+    keys_path = home / conventions.KEYS_FILENAME
+    if keys_path.exists():
+        keys = _read_keys_env(keys_path)
+        for key_name in voice_keys:
+            if keys.get(key_name):
+                return DiagnosticCheck(
+                    name="Voice config",
+                    status=CheckStatus.ok,
+                    message=f"{key_name} found in keys.env",
+                )
     return DiagnosticCheck(
         name="Voice config",
         status=CheckStatus.warning,
-        message="OPENAI_API_KEY not found in env or keys.env",
+        message="No OpenAI or Azure OpenAI key found in env or keys.env",
     )
 
 
