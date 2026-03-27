@@ -334,3 +334,234 @@ def test_sync_providers_registers_incomplete(settings, monkeypatch):
     assert len(results) >= 1
     anthropic_result = next(r for r in results if r.provider_id == "anthropic")
     assert anthropic_result.ok is True
+
+
+# -- Legacy settings.yaml compatibility (#229) --------------------------------
+
+
+class TestLegacySettingsCompat:
+    """Regression tests for #229: legacy settings.yaml entries without 'id' field.
+
+    amplifier-app-cli writes entries that only have ``module`` + ``config``,
+    not the ``id`` field that this plugin writes.  These tests ensure the
+    distro plugin correctly detects, skips-duplication-of, and migrates
+    such legacy entries.
+    """
+
+    def test_add_provider_config_idempotent_legacy_no_id_field(self, settings):
+        """Legacy entries without 'id' should not be duplicated."""
+        settings_path = settings.amplifier_home / "settings.yaml"
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(
+            yaml.dump(
+                {
+                    "config": {
+                        "providers": [
+                            {
+                                "module": "provider-anthropic",
+                                "config": {
+                                    "priority": 1,
+                                    "api_key": "${ANTHROPIC_API_KEY}",
+                                },
+                                "source": "git+https://example.com",
+                            }
+                        ]
+                    }
+                }
+            )
+        )
+        add_provider_config(settings, "anthropic")
+        data = yaml.safe_load(settings_path.read_text())
+        assert len(data["config"]["providers"]) == 1
+        # Should have migrated the id field in-place
+        assert data["config"]["providers"][0]["id"] == "anthropic"
+
+    def test_add_provider_config_legacy_does_not_demote_priority(self, settings):
+        """When a legacy entry matches, its priority should NOT be demoted."""
+        settings_path = settings.amplifier_home / "settings.yaml"
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(
+            yaml.dump(
+                {
+                    "config": {
+                        "providers": [
+                            {
+                                "module": "provider-anthropic",
+                                "config": {
+                                    "priority": 1,
+                                    "api_key": "${ANTHROPIC_API_KEY}",
+                                },
+                            }
+                        ]
+                    }
+                }
+            )
+        )
+        add_provider_config(settings, "anthropic")
+        data = yaml.safe_load(settings_path.read_text())
+        assert data["config"]["providers"][0]["config"]["priority"] == 1
+
+    def test_add_provider_config_legacy_preserves_custom_fields(self, settings):
+        """Legacy entries with custom config fields should be preserved, not overwritten."""
+        settings_path = settings.amplifier_home / "settings.yaml"
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(
+            yaml.dump(
+                {
+                    "config": {
+                        "providers": [
+                            {
+                                "module": "provider-anthropic",
+                                "config": {
+                                    "priority": 1,
+                                    "api_key": "${ANTHROPIC_API_KEY}",
+                                    "base_url": "${ANTHROPIC_BASE_URL}",
+                                    "default_model": "claude-opus-4-6",
+                                    "enable_1m_context": "true",
+                                    "enable_prompt_caching": "true",
+                                },
+                                "source": "git+https://example.com",
+                            }
+                        ]
+                    }
+                }
+            )
+        )
+        add_provider_config(settings, "anthropic")
+        data = yaml.safe_load(settings_path.read_text())
+        entry = data["config"]["providers"][0]
+        # One entry — no duplicate
+        assert len(data["config"]["providers"]) == 1
+        # Custom fields must survive
+        assert entry["config"]["enable_1m_context"] == "true"
+        assert entry["config"]["enable_prompt_caching"] == "true"
+        assert entry["config"]["default_model"] == "claude-opus-4-6"
+
+    def test_check_provider_status_finds_legacy_entry(self, settings):
+        """check_provider_status should detect legacy entries without 'id'."""
+        settings_path = settings.amplifier_home / "settings.yaml"
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(
+            yaml.dump(
+                {
+                    "config": {
+                        "providers": [
+                            {
+                                "module": "provider-anthropic",
+                                "config": {"priority": 1},
+                            }
+                        ]
+                    }
+                }
+            )
+        )
+        status = check_provider_status(settings, "anthropic")
+        assert status["in_settings"] is True
+
+    def test_legacy_openai_not_confused_with_xai(self, settings):
+        """Legacy OpenAI entry (no base_url) should NOT match the xAI provider."""
+        settings_path = settings.amplifier_home / "settings.yaml"
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(
+            yaml.dump(
+                {
+                    "config": {
+                        "providers": [
+                            {
+                                "module": "provider-openai",
+                                "config": {
+                                    "priority": 1,
+                                    "api_key": "${OPENAI_API_KEY}",
+                                },
+                            }
+                        ]
+                    }
+                }
+            )
+        )
+        # OpenAI should match (no base_url on either side)
+        status_openai = check_provider_status(settings, "openai")
+        assert status_openai["in_settings"] is True
+        # xAI should NOT match (it requires a base_url)
+        status_xai = check_provider_status(settings, "xai")
+        assert status_xai["in_settings"] is False
+
+    def test_legacy_xai_with_base_url_matches_correctly(self, settings):
+        """Legacy xAI entry (has base_url, no id) should match xai, not openai."""
+        settings_path = settings.amplifier_home / "settings.yaml"
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(
+            yaml.dump(
+                {
+                    "config": {
+                        "providers": [
+                            {
+                                "module": "provider-openai",
+                                "config": {
+                                    "priority": 1,
+                                    "api_key": "${XAI_API_KEY}",
+                                    "base_url": "https://api.x.ai/v1",
+                                },
+                            }
+                        ]
+                    }
+                }
+            )
+        )
+        # xAI should match (base_url agrees)
+        status_xai = check_provider_status(settings, "xai")
+        assert status_xai["in_settings"] is True
+        # OpenAI should NOT match (no base_url on provider side, but entry has one)
+        status_openai = check_provider_status(settings, "openai")
+        assert status_openai["in_settings"] is False
+
+    def test_sync_providers_does_not_duplicate_legacy(self, settings, monkeypatch):
+        """sync_providers should not re-register providers present in legacy format."""
+        settings_path = settings.amplifier_home / "settings.yaml"
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(
+            yaml.dump(
+                {
+                    "config": {
+                        "providers": [
+                            {
+                                "module": "provider-anthropic",
+                                "config": {
+                                    "priority": 1,
+                                    "api_key": "${ANTHROPIC_API_KEY}",
+                                },
+                            }
+                        ]
+                    }
+                }
+            )
+        )
+        # Set API key in both keys.env and os.environ
+        keys_path = settings.amplifier_home / "keys.env"
+        keys_path.write_text('ANTHROPIC_API_KEY="sk-ant-test123"\n')
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test123")
+
+        # Set up overlay so that in_overlay=True
+        overlay_path = settings.distro_home / "bundle" / "bundle.yaml"
+        overlay_path.parent.mkdir(parents=True, exist_ok=True)
+        overlay_path.write_text(
+            yaml.dump(
+                {
+                    "bundle": {"name": "amplifier-distro", "version": "0.1.0"},
+                    "includes": [{"bundle": PROVIDERS["anthropic"].include}],
+                }
+            )
+        )
+
+        results = sync_providers(settings)
+
+        # anthropic should NOT be in the results (already fully configured)
+        assert not any(r.provider_id == "anthropic" for r in results)
+        # The legacy anthropic entry should appear exactly once (no duplication)
+        data = yaml.safe_load(settings_path.read_text())
+        anthropic_entries = [
+            e
+            for e in data["config"]["providers"]
+            if e.get("module") == "provider-anthropic" or e.get("id") == "anthropic"
+        ]
+        assert len(anthropic_entries) == 1
