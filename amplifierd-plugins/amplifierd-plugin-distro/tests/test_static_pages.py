@@ -125,6 +125,38 @@ def test_dashboard_html_uses_updated_paths():
     assert "/apps/slack/" not in content
 
 
+def test_dashboard_chat_and_voice_open_in_new_tab():
+    """Chat and Voice app cards must open in new tabs to preserve the dashboard."""
+    content = (_STATIC_DIR / "dashboard.html").read_text()
+    # Chat link must have target="_blank"
+    assert 'href="/chat/" target="_blank"' in content
+    # Voice link must have target="_blank"
+    assert 'href="/voice/" target="_blank"' in content
+
+
+_SLACK_STATIC_DIR = (
+    Path(__file__).parent.parent.parent
+    / "amplifierd-plugin-slack"
+    / "src"
+    / "slack_plugin"
+    / "static"
+)
+
+
+def test_slack_setup_back_link_goes_to_dashboard():
+    """Slack setup page must link back to the dashboard, not settings."""
+    slack_html = _SLACK_STATIC_DIR / "slack-setup.html"
+    if not slack_html.exists():
+        import pytest
+
+        pytest.skip("slack-setup.html not found")
+    content = slack_html.read_text()
+    assert 'href="/distro/"' in content
+    assert "Back to Dashboard" in content
+    # Must NOT link to settings (user came from dashboard, not settings)
+    assert 'href="/distro/settings"' not in content
+
+
 def test_static_styles_css_served(client):
     """GET /static/styles.css returns 200."""
     resp = client.get("/static/styles.css")
