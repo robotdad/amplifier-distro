@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
+from click.testing import CliRunner
+
+from amplifier_distro.cli import main
 from amplifier_distro.service import (
+    ServiceResult,
     _generate_launchd_server_plist,
     _generate_systemd_server_unit,
+    _generate_systemd_watchdog_unit,
 )
 
 
@@ -48,3 +55,72 @@ class TestLaunchdServerPlist:
         assert "<string>0.0.0.0</string>" in plist
         assert "<string>--port</string>" in plist
         assert "<string>8410</string>" in plist
+
+
+class TestServiceInstallCLI:
+    """Tests for the service install CLI command.
+
+    These tests define the DESIRED behavior of `amp-distro service install`:
+    - Default host should be 127.0.0.1 (localhost-only mode)
+    - The command should accept a --tls flag
+    - tls_mode should be forwarded to install_service (default: None)
+
+    All three tests are expected to FAIL against the current implementation because:
+    1. service install currently defaults host to 0.0.0.0, not 127.0.0.1
+    2. service install has no --tls flag
+    3. install_service does not accept a tls_mode parameter
+    """
+
+    def test_service_install_default_host_is_localhost(self) -> None:
+        """Default host for 'service install' should be 127.0.0.1 (localhost).
+
+        Expected to FAIL: current default is 0.0.0.0.
+        """
+        captured: dict = {}
+
+        def fake_install_service(**kwargs: object) -> ServiceResult:
+            captured.update(kwargs)
+            return ServiceResult(success=True, platform="linux", message="Mocked")
+
+        runner = CliRunner()
+        with patch("amplifier_distro.service.install_service", fake_install_service):
+            runner.invoke(main, ["service", "install"])
+
+        assert captured.get("host") == "127.0.0.1"
+
+    def test_service_install_accepts_tls_flag(self) -> None:
+        """service install should accept --tls off and pass tls_mode to install_service.
+
+        Expected to FAIL: service install currently has no --tls flag.
+        """
+        captured: dict = {}
+
+        def fake_install_service(**kwargs: object) -> ServiceResult:
+            captured.update(kwargs)
+            return ServiceResult(success=True, platform="linux", message="Mocked")
+
+        runner = CliRunner()
+        with patch("amplifier_distro.service.install_service", fake_install_service):
+            runner.invoke(
+                main, ["service", "install", "--host", "0.0.0.0", "--tls", "off"]
+            )
+
+        assert captured.get("tls_mode") == "off"
+        assert captured.get("host") == "0.0.0.0"
+
+    def test_service_install_tls_default_is_none(self) -> None:
+        """service install without --tls should pass tls_mode=None to install_service.
+
+        Expected to FAIL: install_service does not currently accept tls_mode.
+        """
+        captured: dict = {}
+
+        def fake_install_service(**kwargs: object) -> ServiceResult:
+            captured.update(kwargs)
+            return ServiceResult(success=True, platform="linux", message="Mocked")
+
+        runner = CliRunner()
+        with patch("amplifier_distro.service.install_service", fake_install_service):
+            runner.invoke(main, ["service", "install"])
+
+        assert captured["tls_mode"] is None
