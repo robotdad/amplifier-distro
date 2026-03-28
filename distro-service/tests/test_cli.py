@@ -126,3 +126,36 @@ class TestServeSubcommandRemoved:
         result = runner.invoke(main, ["serve"])
         assert result.exit_code != 0
         assert "no such command" in result.output.lower()
+
+
+class TestNetworkWithoutTlsWarning:
+    """Tests for the warning emitted when running on a network interface without TLS.
+
+    When the user explicitly passes --tls off together with a non-localhost
+    host, amp-distro should emit a clearly visible warning so the operator
+    knows the service is exposed without encryption.
+    """
+
+    def test_warning_emitted_on_network_without_tls(self) -> None:
+        """--host 0.0.0.0 --tls off should emit a 'without TLS' warning to stderr."""
+        with patch("amplifier_distro.cli._start_server", side_effect=SystemExit(0)):
+            runner = CliRunner()
+            result = runner.invoke(main, ["--host", "0.0.0.0", "--tls", "off"])
+            combined = result.output + (result.stderr_bytes or b"").decode()
+            assert "without TLS" in combined
+
+    def test_no_warning_on_localhost(self) -> None:
+        """Default localhost invocation should NOT emit a 'without TLS' warning."""
+        with patch("amplifier_distro.cli._start_server", side_effect=SystemExit(0)):
+            runner = CliRunner()
+            result = runner.invoke(main, [])
+            combined = result.output + (result.stderr_bytes or b"").decode()
+            assert "without TLS" not in combined
+
+    def test_no_warning_on_network_with_tls(self) -> None:
+        """--host 0.0.0.0 with TLS auto (default) should NOT emit a 'without TLS' warning."""
+        with patch("amplifier_distro.cli._start_server", side_effect=SystemExit(0)):
+            runner = CliRunner()
+            result = runner.invoke(main, ["--host", "0.0.0.0"])
+            combined = result.output + (result.stderr_bytes or b"").decode()
+            assert "without TLS" not in combined
