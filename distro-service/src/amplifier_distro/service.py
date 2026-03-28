@@ -232,7 +232,7 @@ def _generate_systemd_server_unit(distro_bin: str, host: str, port: int) -> str:
 
         [Service]
         Type=simple
-        ExecStart={distro_bin} serve --host {host} --port {port}
+        ExecStart={distro_bin} --host {host} --port {port}
         Restart=always
         # Note: Restart=always (not on-failure) is intentional. The watchdog triggers
         # restarts by exiting with code 1, which causes systemd to restart the watchdog
@@ -552,7 +552,6 @@ def _generate_launchd_server_plist(distro_bin: str, host: str, port: int) -> str
             <key>ProgramArguments</key>
             <array>
                 <string>{distro_bin}</string>
-                <string>serve</string>
                 <string>--host</string>
                 <string>{host}</string>
                 <string>--port</string>
