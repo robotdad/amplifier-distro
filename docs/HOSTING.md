@@ -5,7 +5,7 @@ choice depends on whether you need remote access and whether another service is 
 handling TLS and authentication for you.
 
 For deeper technical details on TLS modes, proxy trust, and cookie configuration, see the
-[amplifierd HOSTING.md](../../amplifierd/docs/HOSTING.md).
+[amplifierd HOSTING.md](https://github.com/microsoft/amplifierd/blob/main/docs/HOSTING.md).
 
 ---
 
@@ -116,6 +116,16 @@ Binding to `0.0.0.0` triggers smart defaults automatically:
 Access the server at `https://<your-host>:8410`. If using Tailscale, the Tailscale hostname
 resolves automatically and the certificate is trusted. With a self-signed certificate, your
 browser will show a security warning — accept it for your personal server.
+
+#### Manual TLS (Bring Your Own Certificates)
+
+If you have existing certificates (e.g., from Let's Encrypt or your own CA), you can pass
+them directly instead of relying on auto-provisioning:
+
+```bash
+# Using your own certificates
+amp-distro --host 0.0.0.0 --tls manual --ssl-certfile /path/to/cert.pem --ssl-keyfile /path/to/key.pem
+```
 
 ---
 
@@ -300,6 +310,6 @@ accessing the server by hostname.
 
 ## Further Reading
 
-- **[amplifierd HOSTING.md](../../amplifierd/docs/HOSTING.md)** — Technical reference for
+- **[amplifierd HOSTING.md](https://github.com/microsoft/amplifierd/blob/main/docs/HOSTING.md)** — Technical reference for
   TLS modes, proxy trust configuration, cookie behavior, and port auto-increment. Covers
   the amplifierd settings that `amp-distro` passes through.

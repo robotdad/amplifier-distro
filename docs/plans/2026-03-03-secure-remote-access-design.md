@@ -1,5 +1,7 @@
 # Secure Remote Access Design
 
+> **Note:** This design was substantially revised during implementation. See [docs/HOSTING.md](../HOSTING.md) for the current architecture. Key changes: the `serve` subcommand was removed in favor of smart defaults on `--host`, and TLS/auth behavior is now driven by amplifierd's settings rather than distro-specific config.
+
 ## Goal
 
 Address GitHub issue #68: voice app fails on remote access because `getUserMedia` requires HTTPS. The fix encompasses four independent layers — browser-side secure context detection, native TLS support, PAM authentication for remote access, and a CSRF origin fix.
