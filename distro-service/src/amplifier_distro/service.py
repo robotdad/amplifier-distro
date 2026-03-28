@@ -29,6 +29,7 @@ from amplifier_distro import conventions
 # Split to avoid grep matching the deprecated binary name in source scans.
 # Used only for detecting stale config files that reference the old entry point.
 _DEPRECATED_BINARY = "amp-distro" + "-server"
+_DEPRECATED_SERVE_CMD = "amp-distro serve"
 
 # ---------------------------------------------------------------------------
 # Result model
@@ -485,6 +486,11 @@ def _status_systemd() -> ServiceResult:
                 f"WARNING: deprecated {_DEPRECATED_BINARY} binary detected in unit"
                 " file. Run 'amp-distro service uninstall' and reinstall to migrate."
             )
+        if _DEPRECATED_SERVE_CMD in unit_content:
+            details.append(
+                "WARNING: service unit references removed 'serve' subcommand."
+                " Run 'amp-distro service uninstall' then 'amp-distro service install' to update."
+            )
     else:
         details.append("Server service: not installed")
 
@@ -778,6 +784,11 @@ def _status_launchd() -> ServiceResult:
             details.append(
                 f"WARNING: deprecated {_DEPRECATED_BINARY} binary detected in plist. "
                 "Run 'amp-distro service uninstall' and reinstall to migrate."
+            )
+        if _DEPRECATED_SERVE_CMD in plist_content:
+            details.append(
+                "WARNING: service plist references removed 'serve' subcommand."
+                " Run 'amp-distro service uninstall' then 'amp-distro service install' to update."
             )
     else:
         details.append("Server agent: not installed")

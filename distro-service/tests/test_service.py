@@ -12,6 +12,8 @@ from amplifier_distro.service import (
     _generate_launchd_server_plist,
     _generate_systemd_server_unit,
     _generate_systemd_watchdog_unit,
+    _launchd_server_plist_path,
+    _status_launchd,
     _status_systemd,
     _systemd_server_unit_path,
 )
@@ -277,3 +279,55 @@ class TestStaleServeDetection:
         finally:
             if unit_path.exists():
                 unit_path.unlink()
+
+    def test_detects_stale_serve_in_launchd_plist(self) -> None:
+        """_status_launchd must warn when plist uses the stale 'serve' subcommand."""
+        plist_path = _launchd_server_plist_path()
+        plist_path.parent.mkdir(parents=True, exist_ok=True)
+        stale_content = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<plist version="1.0"><dict>\n'
+            "<key>ProgramArguments</key>\n"
+            "<array>\n"
+            "<string>/home/user/.local/bin/amp-distro serve --host 0.0.0.0 --port 8410</string>\n"
+            "</array>\n"
+            "</dict></plist>\n"
+        )
+        try:
+            plist_path.write_text(stale_content)
+            with patch("amplifier_distro.service._run_cmd", return_value=(True, "")):
+                result = _status_launchd()
+            serve_warnings = [d for d in result.details if "serve" in d]
+            assert len(serve_warnings) > 0
+            assert any("uninstall" in w or "reinstall" in w for w in serve_warnings)
+        finally:
+            if plist_path.exists():
+                plist_path.unlink()
+
+    def test_no_warning_for_current_launchd_format(self) -> None:
+        """_status_launchd must not warn when plist uses the current format (no 'serve')."""
+        plist_path = _launchd_server_plist_path()
+        plist_path.parent.mkdir(parents=True, exist_ok=True)
+        current_content = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<plist version="1.0"><dict>\n'
+            "<key>ProgramArguments</key>\n"
+            "<array>\n"
+            "<string>/home/user/.local/bin/amp-distro</string>\n"
+            "<string>--host</string><string>127.0.0.1</string>\n"
+            "</array>\n"
+            "</dict></plist>\n"
+        )
+        try:
+            plist_path.write_text(current_content)
+            with patch("amplifier_distro.service._run_cmd", return_value=(True, "")):
+                result = _status_launchd()
+            serve_subcommand_warnings = [
+                d
+                for d in result.details
+                if "serve" in d and ("uninstall" in d or "reinstall" in d)
+            ]
+            assert len(serve_subcommand_warnings) == 0
+        finally:
+            if plist_path.exists():
+                plist_path.unlink()
