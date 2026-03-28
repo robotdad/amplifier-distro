@@ -64,22 +64,14 @@ class TestLaunchdServerPlist:
 class TestServiceInstallCLI:
     """Tests for the service install CLI command.
 
-    These tests define the DESIRED behavior of `amp-distro service install`:
-    - Default host should be 127.0.0.1 (localhost-only mode)
-    - The command should accept a --tls flag
-    - tls_mode should be forwarded to install_service (default: None)
-
-    All three tests are expected to FAIL against the current implementation because:
-    1. service install currently defaults host to 0.0.0.0, not 127.0.0.1
-    2. service install has no --tls flag
-    3. install_service does not accept a tls_mode parameter
+    Verifies the behavior of `amp-distro service install`:
+    - Default host is 127.0.0.1 (localhost-only mode)
+    - The command accepts a --tls flag
+    - tls_mode is forwarded to install_service (default: None)
     """
 
     def test_service_install_default_host_is_localhost(self) -> None:
-        """Default host for 'service install' should be 127.0.0.1 (localhost).
-
-        Expected to FAIL: current default is 0.0.0.0.
-        """
+        """Default host for 'service install' should be 127.0.0.1 (localhost)."""
         captured: dict = {}
 
         def fake_install_service(**kwargs: object) -> ServiceResult:
@@ -93,10 +85,7 @@ class TestServiceInstallCLI:
         assert captured.get("host") == "127.0.0.1"
 
     def test_service_install_accepts_tls_flag(self) -> None:
-        """service install should accept --tls off and pass tls_mode to install_service.
-
-        Expected to FAIL: service install currently has no --tls flag.
-        """
+        """service install should accept --tls off and pass tls_mode to install_service."""
         captured: dict = {}
 
         def fake_install_service(**kwargs: object) -> ServiceResult:
@@ -113,10 +102,7 @@ class TestServiceInstallCLI:
         assert captured.get("host") == "0.0.0.0"
 
     def test_service_install_tls_default_is_none(self) -> None:
-        """service install without --tls should pass tls_mode=None to install_service.
-
-        Expected to FAIL: install_service does not currently accept tls_mode.
-        """
+        """service install without --tls should pass tls_mode=None to install_service."""
         captured: dict = {}
 
         def fake_install_service(**kwargs: object) -> ServiceResult:
@@ -135,15 +121,12 @@ class TestServiceInstallCLI:
 class TestSystemdServerUnitGeneration:
     """Tests for the updated systemd server unit generator.
 
-    These tests define the DESIRED behavior of _generate_systemd_server_unit:
+    Verifies the behavior of _generate_systemd_server_unit:
     - ExecStart must not include 'amp-distro serve' (the removed subcommand)
     - Default host should be 127.0.0.1 (localhost-only mode)
     - tls_mode='off' should append '--tls off' to ExecStart
     - tls_mode=None should omit '--tls' from ExecStart entirely
     - EnvironmentFile must be present pointing to .amplifier/.env
-
-    Some tests (TLS-related) are expected to FAIL against the current implementation
-    because _generate_systemd_server_unit does not yet accept a tls_mode parameter.
     """
 
     def test_no_serve_in_exec_start(self) -> None:
@@ -165,20 +148,14 @@ class TestSystemdServerUnitGeneration:
         assert "--port 8410" in unit
 
     def test_exec_start_with_tls_off(self) -> None:
-        """When tls_mode='off', ExecStart must include '--tls off'.
-
-        Expected to FAIL: _generate_systemd_server_unit does not yet accept tls_mode.
-        """
+        """When tls_mode='off', ExecStart must include '--tls off'."""
         unit = _generate_systemd_server_unit(
             "/usr/bin/amp-distro", "127.0.0.1", 8410, tls_mode="off"
         )
         assert "--tls off" in unit
 
     def test_exec_start_without_tls_when_none(self) -> None:
-        """When tls_mode=None (default), ExecStart must not include '--tls'.
-
-        Expected to FAIL: _generate_systemd_server_unit does not yet accept tls_mode.
-        """
+        """When tls_mode=None (default), ExecStart must not include '--tls'."""
         unit = _generate_systemd_server_unit(
             "/usr/bin/amp-distro", "127.0.0.1", 8410, tls_mode=None
         )
@@ -212,23 +189,17 @@ class TestSystemdWatchdogUnitGeneration:
 
 
 class TestStaleServeDetection:
-    """Tests for stale 'serve' subcommand detection in _status_systemd.
+    """Tests for stale 'serve' subcommand detection in _status_systemd and _status_launchd.
 
-    These tests define the DESIRED behavior of _status_systemd:
+    Verifies the behavior of stale-config detection:
     - When the installed unit file uses the stale 'serve' subcommand in ExecStart,
       a warning containing 'uninstall' or 'reinstall' must appear in the details.
     - When the unit file uses the current format (no 'serve' subcommand), no such
       warning appears.
-
-    test_detects_stale_serve_in_systemd_unit is expected to FAIL against the current
-    implementation because _status_systemd does not yet check for the 'serve' subcommand.
     """
 
     def test_detects_stale_serve_in_systemd_unit(self) -> None:
-        """_status_systemd must warn when unit file uses the stale 'serve' subcommand.
-
-        Expected to FAIL: _status_systemd does not yet detect 'serve' in ExecStart.
-        """
+        """_status_systemd must warn when unit file uses the stale 'serve' subcommand."""
         unit_path = _systemd_server_unit_path()
         unit_path.parent.mkdir(parents=True, exist_ok=True)
         stale_content = (
