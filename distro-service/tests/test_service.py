@@ -11,7 +11,7 @@ from amplifier_distro.service import (
     ServiceResult,
     _generate_launchd_server_plist,
     _generate_systemd_server_unit,
-    _generate_systemd_watchdog_unit,  # noqa: F401 — required by spec (task-4); not used until watchdog template tests are added
+    _generate_systemd_watchdog_unit,
 )
 
 
@@ -126,3 +126,82 @@ class TestServiceInstallCLI:
         # Use direct key access (not .get()) so this fails with KeyError if tls_mode
         # is never passed — a silent None from .get() would produce a false green assertion.
         assert captured["tls_mode"] is None
+
+
+class TestSystemdServerUnitGeneration:
+    """Tests for the updated systemd server unit generator.
+
+    These tests define the DESIRED behavior of _generate_systemd_server_unit:
+    - ExecStart must not include 'amp-distro serve' (the removed subcommand)
+    - Default host should be 127.0.0.1 (localhost-only mode)
+    - tls_mode='off' should append '--tls off' to ExecStart
+    - tls_mode=None should omit '--tls' from ExecStart entirely
+    - EnvironmentFile must be present pointing to .amplifier/.env
+
+    Some tests (TLS-related) are expected to FAIL against the current implementation
+    because _generate_systemd_server_unit does not yet accept a tls_mode parameter.
+    """
+
+    def test_no_serve_in_exec_start(self) -> None:
+        """ExecStart must not contain 'amp-distro serve' and must include correct invocation."""
+        unit = _generate_systemd_server_unit("/usr/bin/amp-distro", "127.0.0.1", 8410)
+        assert "amp-distro serve" not in unit
+        assert "ExecStart=/usr/bin/amp-distro --host 127.0.0.1 --port 8410" in unit
+
+    def test_exec_start_default_localhost(self) -> None:
+        """ExecStart must bind to 127.0.0.1 when localhost is specified."""
+        unit = _generate_systemd_server_unit("/usr/bin/amp-distro", "127.0.0.1", 8410)
+        assert "--host 127.0.0.1" in unit
+        assert "--port 8410" in unit
+
+    def test_exec_start_network_host(self) -> None:
+        """ExecStart must use the provided network host address."""
+        unit = _generate_systemd_server_unit("/usr/bin/amp-distro", "0.0.0.0", 8410)
+        assert "--host 0.0.0.0" in unit
+        assert "--port 8410" in unit
+
+    def test_exec_start_with_tls_off(self) -> None:
+        """When tls_mode='off', ExecStart must include '--tls off'.
+
+        Expected to FAIL: _generate_systemd_server_unit does not yet accept tls_mode.
+        """
+        unit = _generate_systemd_server_unit(
+            "/usr/bin/amp-distro", "127.0.0.1", 8410, tls_mode="off"
+        )
+        assert "--tls off" in unit
+
+    def test_exec_start_without_tls_when_none(self) -> None:
+        """When tls_mode=None (default), ExecStart must not include '--tls'.
+
+        Expected to FAIL: _generate_systemd_server_unit does not yet accept tls_mode.
+        """
+        unit = _generate_systemd_server_unit(
+            "/usr/bin/amp-distro", "127.0.0.1", 8410, tls_mode=None
+        )
+        assert "--tls" not in unit
+
+    def test_environment_file_present(self) -> None:
+        """Unit must include EnvironmentFile pointing to .amplifier/.env."""
+        unit = _generate_systemd_server_unit("/usr/bin/amp-distro", "127.0.0.1", 8410)
+        assert "EnvironmentFile=-" in unit
+        assert ".amplifier/.env" in unit
+
+
+class TestSystemdWatchdogUnitGeneration:
+    """Tests for the systemd watchdog unit generator.
+
+    The watchdog unit should invoke the 'watchdog' subcommand (not 'serve')
+    and mirror the host/port passed to the generator.
+    """
+
+    def test_no_serve_in_watchdog_exec_start(self) -> None:
+        """Watchdog ExecStart must not contain 'serve' but must contain 'watchdog'."""
+        unit = _generate_systemd_watchdog_unit("/usr/bin/amp-distro", "127.0.0.1", 8410)
+        assert "serve" not in unit
+        assert "watchdog" in unit
+
+    def test_watchdog_mirrors_host_port(self) -> None:
+        """Watchdog ExecStart must pass through the specified host and port."""
+        unit = _generate_systemd_watchdog_unit("/usr/bin/amp-distro", "0.0.0.0", 9999)
+        assert "--host 0.0.0.0" in unit
+        assert "--port 9999" in unit
