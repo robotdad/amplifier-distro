@@ -97,7 +97,7 @@ def install_service(
         message="Unsupported platform for automatic service installation.",
         details=[
             "Supported: Linux (systemd), macOS (launchd).",
-            "For Windows, use Task Scheduler or NSSM to run: amp-distro serve",
+            "For Windows, use Task Scheduler or NSSM to run: amp-distro --host 0.0.0.0",
             "Windows service support tracked in GitHub issue #21.",
         ],
     )
