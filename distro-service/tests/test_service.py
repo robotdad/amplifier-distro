@@ -11,7 +11,7 @@ from amplifier_distro.service import (
     ServiceResult,
     _generate_launchd_server_plist,
     _generate_systemd_server_unit,
-    _generate_systemd_watchdog_unit,
+    _generate_systemd_watchdog_unit,  # noqa: F401 — required by spec (task-4); not used until watchdog template tests are added
 )
 
 
@@ -123,4 +123,6 @@ class TestServiceInstallCLI:
         with patch("amplifier_distro.service.install_service", fake_install_service):
             runner.invoke(main, ["service", "install"])
 
+        # Use direct key access (not .get()) so this fails with KeyError if tls_mode
+        # is never passed — a silent None from .get() would produce a false green assertion.
         assert captured["tls_mode"] is None
