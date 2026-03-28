@@ -12,6 +12,8 @@ from amplifier_distro.service import (
     _generate_launchd_server_plist,
     _generate_systemd_server_unit,
     _generate_systemd_watchdog_unit,
+    _status_systemd,
+    _systemd_server_unit_path,
 )
 
 
@@ -205,3 +207,73 @@ class TestSystemdWatchdogUnitGeneration:
         unit = _generate_systemd_watchdog_unit("/usr/bin/amp-distro", "0.0.0.0", 9999)
         assert "--host 0.0.0.0" in unit
         assert "--port 9999" in unit
+
+
+class TestStaleServeDetection:
+    """Tests for stale 'serve' subcommand detection in _status_systemd.
+
+    These tests define the DESIRED behavior of _status_systemd:
+    - When the installed unit file uses the stale 'serve' subcommand in ExecStart,
+      a warning containing 'uninstall' or 'reinstall' must appear in the details.
+    - When the unit file uses the current format (no 'serve' subcommand), no such
+      warning appears.
+
+    test_detects_stale_serve_in_systemd_unit is expected to FAIL against the current
+    implementation because _status_systemd does not yet check for the 'serve' subcommand.
+    """
+
+    def test_detects_stale_serve_in_systemd_unit(self) -> None:
+        """_status_systemd must warn when unit file uses the stale 'serve' subcommand.
+
+        Expected to FAIL: _status_systemd does not yet detect 'serve' in ExecStart.
+        """
+        unit_path = _systemd_server_unit_path()
+        unit_path.parent.mkdir(parents=True, exist_ok=True)
+        stale_content = (
+            "[Unit]\n"
+            "Description=Amplifier Distro Server\n"
+            "[Service]\n"
+            "ExecStart=/home/user/.local/bin/amp-distro serve --host 0.0.0.0 --port 8410\n"
+        )
+        try:
+            unit_path.write_text(stale_content)
+            with patch(
+                "amplifier_distro.service._run_cmd", return_value=(True, "active")
+            ):
+                result = _status_systemd()
+            serve_warnings = [d for d in result.details if "serve" in d]
+            assert len(serve_warnings) > 0
+            assert any("uninstall" in w or "reinstall" in w for w in serve_warnings)
+        finally:
+            if unit_path.exists():
+                unit_path.unlink()
+
+    def test_no_warning_for_current_format(self) -> None:
+        """_status_systemd must not warn when unit file uses the current format (no 'serve').
+
+        When ExecStart does not include the 'serve' subcommand, the details list must
+        contain zero entries that mention both 'serve' and 'uninstall'/'reinstall'.
+        """
+        unit_path = _systemd_server_unit_path()
+        unit_path.parent.mkdir(parents=True, exist_ok=True)
+        current_content = (
+            "[Unit]\n"
+            "Description=Amplifier Distro Server\n"
+            "[Service]\n"
+            "ExecStart=/home/user/.local/bin/amp-distro --host 127.0.0.1 --port 8410\n"
+        )
+        try:
+            unit_path.write_text(current_content)
+            with patch(
+                "amplifier_distro.service._run_cmd", return_value=(True, "active")
+            ):
+                result = _status_systemd()
+            serve_subcommand_warnings = [
+                d
+                for d in result.details
+                if "serve" in d and ("uninstall" in d or "reinstall" in d)
+            ]
+            assert len(serve_subcommand_warnings) == 0
+        finally:
+            if unit_path.exists():
+                unit_path.unlink()
