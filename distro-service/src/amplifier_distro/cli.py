@@ -354,8 +354,8 @@ def service_group() -> None:
 )
 @click.option(
     "--host",
-    default="0.0.0.0",
-    help="Bind host (use 127.0.0.1 to restrict to localhost).",
+    default="127.0.0.1",
+    help="Bind host (use 0.0.0.0 for network access).",
 )
 @click.option(
     "--port",
@@ -363,13 +363,24 @@ def service_group() -> None:
     type=int,
     help="Bind port (default: 8410).",
 )
-def service_install(no_watchdog: bool, host: str, port: int | None) -> None:
+@click.option(
+    "--tls",
+    "tls_mode",
+    default=None,
+    type=click.Choice(["auto", "off", "manual"], case_sensitive=False),
+    help="TLS mode for the generated service unit. Omit to use smart defaults at runtime.",
+)
+def service_install(
+    no_watchdog: bool, host: str, port: int | None, tls_mode: str | None
+) -> None:
     """Install the platform service for auto-start on boot."""
     from .service import install_service
 
     if port is None:
         port = conventions.SERVER_DEFAULT_PORT
-    result = install_service(include_watchdog=not no_watchdog, host=host, port=port)
+    result = install_service(
+        include_watchdog=not no_watchdog, host=host, port=port, tls_mode=tls_mode
+    )
     if result.success:
         click.echo(f"Service installed ({result.platform})")
         for detail in result.details:
