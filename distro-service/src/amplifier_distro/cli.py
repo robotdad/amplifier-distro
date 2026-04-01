@@ -1,8 +1,4 @@
-"""Amplifier Distro CLI — thin wrapper around amplifierd with remote-access defaults.
-
-Distro provides two modes:
-- amp-distro (no command): localhost mode (127.0.0.1, TLS off) for local development
-- amp-distro serve: remote mode (0.0.0.0, TLS auto, auth enabled) for remote access
+"""Smart defaults based on --host: amp-distro (default): localhost mode (127.0.0.1, TLS off, no auth); amp-distro --host 0.0.0.0: network mode (TLS auto, auth enabled).
 
 Additional commands: backup, restore, doctor, service
 """
@@ -19,10 +15,19 @@ import click
 from . import conventions
 
 
+def _is_non_localhost(host: str) -> bool:
+    """Return True if host is not a localhost address."""
+    return host not in ("127.0.0.1", "localhost", "::1")
+
+
 def _serve_options(func):
     """Shared CLI options for starting the experience server."""
     options = [
-        click.option("--host", default=None, help="Bind host address."),
+        click.option(
+            "--host",
+            default=None,
+            help="Bind host address. Use 0.0.0.0 for network access (enables TLS+auth).",
+        ),
         click.option("--port", default=None, type=int, help="Bind port number."),
         click.option(
             "--tls",
@@ -61,9 +66,7 @@ def _serve_options(func):
 
 @click.group(
     invoke_without_command=True,
-    help="amp-distro — Amplifier distro experience service.\\n\\n"
-    "Run without a subcommand for localhost mode (127.0.0.1, TLS off).\\n"
-    "Use 'amp-distro serve' for remote mode (0.0.0.0, TLS auto).",
+    help="amp-distro — Amplifier distro experience service.",
 )
 @_serve_options
 @click.pass_context
@@ -80,50 +83,34 @@ def main(
 ) -> None:
     """amp-distro — Amplifier distro experience service."""
     if ctx.invoked_subcommand is None:
-        # Default mode: localhost development
+        # Resolve effective host defaulting to localhost
+        effective_host = host or "127.0.0.1"
+
+        # Apply smart defaults based on host
+        if _is_non_localhost(effective_host):
+            effective_tls = tls_mode or "auto"
+            auth_by_default = not no_auth
+            if effective_tls == "off":
+                click.echo(
+                    "Warning: running on network interface without TLS.", err=True
+                )
+        else:
+            effective_tls = tls_mode or "off"
+            auth_by_default = False
+
         ctx.invoke(
             _start_server,
-            host=host or "127.0.0.1",
+            host=effective_host,
             port=port,
-            tls_mode=tls_mode or "off",
+            tls_mode=effective_tls,
             ssl_certfile=ssl_certfile,
             ssl_keyfile=ssl_keyfile,
             no_auth=no_auth,
             reload=reload,
             log_level=log_level,
             home_redirect="/distro/",
+            auth_by_default=auth_by_default,
         )
-
-
-@main.command("serve")
-@_serve_options
-@click.pass_context
-def serve(
-    ctx: click.Context,
-    host: str | None,
-    port: int | None,
-    tls_mode: str | None,
-    ssl_certfile: str | None,
-    ssl_keyfile: str | None,
-    no_auth: bool,
-    reload: bool,
-    log_level: str | None,
-) -> None:
-    """Start the distro experience server with remote-access defaults."""
-    # Remote mode: 0.0.0.0, TLS auto, auth enabled
-    ctx.invoke(
-        _start_server,
-        host=host or "0.0.0.0",
-        port=port,
-        tls_mode=tls_mode or "auto",
-        ssl_certfile=ssl_certfile,
-        ssl_keyfile=ssl_keyfile,
-        no_auth=no_auth,
-        reload=reload,
-        log_level=log_level,
-        home_redirect="/distro/",  # Enable distro dashboard
-        auth_by_default=True,
-    )
 
 
 def _start_server(
@@ -367,8 +354,8 @@ def service_group() -> None:
 )
 @click.option(
     "--host",
-    default="0.0.0.0",
-    help="Bind host (use 127.0.0.1 to restrict to localhost).",
+    default="127.0.0.1",
+    help="Bind host (use 0.0.0.0 for network access).",
 )
 @click.option(
     "--port",
@@ -376,13 +363,24 @@ def service_group() -> None:
     type=int,
     help="Bind port (default: 8410).",
 )
-def service_install(no_watchdog: bool, host: str, port: int | None) -> None:
+@click.option(
+    "--tls",
+    "tls_mode",
+    default=None,
+    type=click.Choice(["auto", "off", "manual"], case_sensitive=False),
+    help="TLS mode for the generated service unit. Omit to use smart defaults at runtime.",
+)
+def service_install(
+    no_watchdog: bool, host: str, port: int | None, tls_mode: str | None
+) -> None:
     """Install the platform service for auto-start on boot."""
     from .service import install_service
 
     if port is None:
         port = conventions.SERVER_DEFAULT_PORT
-    result = install_service(include_watchdog=not no_watchdog, host=host, port=port)
+    result = install_service(
+        include_watchdog=not no_watchdog, host=host, port=port, tls_mode=tls_mode
+    )
     if result.success:
         click.echo(f"Service installed ({result.platform})")
         for detail in result.details:

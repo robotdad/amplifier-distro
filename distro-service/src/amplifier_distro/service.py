@@ -29,6 +29,7 @@ from amplifier_distro import conventions
 # Split to avoid grep matching the deprecated binary name in source scans.
 # Used only for detecting stale config files that reference the old entry point.
 _DEPRECATED_BINARY = "amp-distro" + "-server"
+_DEPRECATED_SERVE_CMD = "amp-distro serve"
 
 # ---------------------------------------------------------------------------
 # Result model
@@ -71,8 +72,9 @@ def detect_platform() -> str:
 
 def install_service(
     include_watchdog: bool = True,
-    host: str = "0.0.0.0",
+    host: str = "127.0.0.1",
     port: int = conventions.SERVER_DEFAULT_PORT,
+    tls_mode: str | None = None,
 ) -> ServiceResult:
     """Install platform service for auto-start on boot.
 
@@ -82,22 +84,27 @@ def install_service(
             runs the server directly (systemd/launchd handle restarts).
         host: Bind host address for the server and watchdog.
         port: Bind port number for the server and watchdog.
+        tls_mode: Optional TLS mode to embed in the service unit. None omits the flag.
 
     Returns:
         ServiceResult with success status and details.
     """
     plat = detect_platform()
     if plat == "linux":
-        return _install_systemd(include_watchdog, host=host, port=port)
+        return _install_systemd(
+            include_watchdog, host=host, port=port, tls_mode=tls_mode
+        )
     if plat == "macos":
-        return _install_launchd(include_watchdog, host=host, port=port)
+        return _install_launchd(
+            include_watchdog, host=host, port=port, tls_mode=tls_mode
+        )
     return ServiceResult(
         success=False,
         platform=plat,
         message="Unsupported platform for automatic service installation.",
         details=[
             "Supported: Linux (systemd), macOS (launchd).",
-            "For Windows, use Task Scheduler or NSSM to run: amp-distro serve",
+            "For Windows, use Task Scheduler or NSSM to run: amp-distro --host 0.0.0.0",
             "Windows service support tracked in GitHub issue #21.",
         ],
     )
@@ -212,19 +219,25 @@ def _systemd_watchdog_unit_path() -> Path:
     return _systemd_dir() / f"{conventions.SERVICE_NAME}-watchdog.service"
 
 
-def _generate_systemd_server_unit(distro_bin: str, host: str, port: int) -> str:
+def _generate_systemd_server_unit(
+    distro_bin: str, host: str, port: int, tls_mode: str | None = None
+) -> str:
     """Generate the systemd unit file for the server.
 
     Args:
         distro_bin: Absolute path to the amp-distro binary.
         host: Bind host address.
         port: Bind port number.
+        tls_mode: Optional TLS mode to append as '--tls {tls_mode}'. Omitted when None.
 
     Returns:
         Complete systemd unit file content as a string.
     """
     path_env = os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")
     amplifier_home = Path(conventions.AMPLIFIER_HOME).expanduser()
+    exec_start = f"{distro_bin} --host {host} --port {port}"
+    if tls_mode is not None:
+        exec_start += f" --tls {tls_mode}"
     return dedent(f"""\
         [Unit]
         Description=Amplifier Distro Server
@@ -232,7 +245,7 @@ def _generate_systemd_server_unit(distro_bin: str, host: str, port: int) -> str:
 
         [Service]
         Type=simple
-        ExecStart={distro_bin} serve --host {host} --port {port}
+        ExecStart={exec_start}
         Restart=always
         # Note: Restart=always (not on-failure) is intentional. The watchdog triggers
         # restarts by exiting with code 1, which causes systemd to restart the watchdog
@@ -299,6 +312,7 @@ def _install_systemd(
     include_watchdog: bool,
     host: str,
     port: int,
+    tls_mode: str | None = None,
 ) -> ServiceResult:
     """Install systemd user services.
 
@@ -315,6 +329,7 @@ def _install_systemd(
         include_watchdog: Whether to also install the watchdog service.
         host: Bind host address.
         port: Bind port number.
+        tls_mode: Optional TLS mode to embed in the server unit. None omits the flag.
 
     Returns:
         ServiceResult with outcome details.
@@ -339,7 +354,9 @@ def _install_systemd(
 
     # Write server unit
     server_unit_path = _systemd_server_unit_path()
-    server_unit_path.write_text(_generate_systemd_server_unit(distro_bin, host, port))
+    server_unit_path.write_text(
+        _generate_systemd_server_unit(distro_bin, host, port, tls_mode=tls_mode)
+    )
     details.append(f"Wrote {server_unit_path}")
 
     # Write watchdog unit
@@ -469,6 +486,11 @@ def _status_systemd() -> ServiceResult:
                 f"WARNING: deprecated {_DEPRECATED_BINARY} binary detected in unit"
                 " file. Run 'amp-distro service uninstall' and reinstall to migrate."
             )
+        if _DEPRECATED_SERVE_CMD in unit_content:
+            details.append(
+                "WARNING: service unit references removed 'serve' subcommand."
+                " Run 'amp-distro service uninstall' then 'amp-distro service install' to update."
+            )
     else:
         details.append("Server service: not installed")
 
@@ -552,7 +574,6 @@ def _generate_launchd_server_plist(distro_bin: str, host: str, port: int) -> str
             <key>ProgramArguments</key>
             <array>
                 <string>{distro_bin}</string>
-                <string>serve</string>
                 <string>--host</string>
                 <string>{host}</string>
                 <string>--port</string>
@@ -642,6 +663,7 @@ def _install_launchd(
     include_watchdog: bool,
     host: str,
     port: int,
+    tls_mode: str | None = None,
 ) -> ServiceResult:
     """Install launchd user agents.
 
@@ -656,6 +678,7 @@ def _install_launchd(
         include_watchdog: Whether to also install the watchdog agent.
         host: Bind host address.
         port: Bind port number.
+        tls_mode: Optional TLS mode (reserved for compatibility). Not embedded in plist.
 
     Returns:
         ServiceResult with outcome details.
@@ -761,6 +784,11 @@ def _status_launchd() -> ServiceResult:
             details.append(
                 f"WARNING: deprecated {_DEPRECATED_BINARY} binary detected in plist. "
                 "Run 'amp-distro service uninstall' and reinstall to migrate."
+            )
+        if _DEPRECATED_SERVE_CMD in plist_content:
+            details.append(
+                "WARNING: service plist references removed 'serve' subcommand."
+                " Run 'amp-distro service uninstall' then 'amp-distro service install' to update."
             )
     else:
         details.append("Server agent: not installed")

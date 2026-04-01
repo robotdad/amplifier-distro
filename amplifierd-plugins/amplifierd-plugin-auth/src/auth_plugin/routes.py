@@ -40,6 +40,53 @@ def _login_html() -> str:
     )
 
 
+def _resolve_cookie_secure(request: Request) -> bool:
+    """Resolve the secure flag for cookies from app settings.
+
+    Reads ``settings.cookie_secure`` from ``request.app.state.settings``:
+    - ``True`` (bool)  → ``True``
+    - ``False`` (bool) → ``False``
+    - ``"true"``       → ``True``
+    - ``"false"``      → ``False``
+    - ``"auto"``       → ``True`` when ``settings.tls_mode`` is not ``"off"``
+                         or ``"tls_off"``; ``False`` otherwise
+    - missing/error    → ``True`` (safe default)
+    """
+    try:
+        settings = request.app.state.settings
+        cookie_secure = settings.cookie_secure
+    except AttributeError:
+        return True  # safe default when no settings configured
+
+    if isinstance(cookie_secure, bool):
+        return cookie_secure
+    if isinstance(cookie_secure, str):
+        if cookie_secure.lower() == "true":
+            return True
+        if cookie_secure.lower() == "false":
+            return False
+        if cookie_secure.lower() == "auto":
+            try:
+                tls_mode = settings.tls_mode
+            except AttributeError:
+                return True  # safe default
+            return tls_mode not in ("off", "tls_off")
+
+    return True  # safe default for unexpected values
+
+
+def _resolve_cookie_samesite(request: Request) -> str:
+    """Resolve the samesite attribute for cookies from app settings.
+
+    Reads ``settings.cookie_samesite`` from ``request.app.state.settings``,
+    defaulting to ``"lax"`` if not set or on any error.
+    """
+    try:
+        return str(request.app.state.settings.cookie_samesite)
+    except AttributeError:
+        return "lax"
+
+
 def create_auth_router(
     secret: str,
     session_timeout: int = DEFAULT_SESSION_TIMEOUT,
@@ -67,7 +114,7 @@ def create_auth_router(
 
         # Redirect back to the page that triggered the login, or / as fallback
         next_url = request.query_params.get("next", "/")
-        # Basic safety: only allow relative paths to prevent open redirects
+        # Open redirect prevention: only allow relative paths
         if not next_url.startswith("/") or next_url.startswith("//"):
             next_url = "/"
 
@@ -77,17 +124,22 @@ def create_auth_router(
             key=COOKIE_NAME,
             value=token,
             httponly=True,
-            secure=True,
-            samesite="strict",
+            secure=_resolve_cookie_secure(request),
+            samesite=_resolve_cookie_samesite(request),
             max_age=session_timeout,
         )
         return response
 
     @router.post("/logout", response_model=None)
-    async def logout() -> Response:
+    async def logout(request: Request) -> Response:
         """Clear the session cookie and redirect to /login."""
         response = RedirectResponse(url="/login", status_code=303)
-        response.delete_cookie(key=COOKIE_NAME)
+        response.delete_cookie(
+            key=COOKIE_NAME,
+            path="/",
+            secure=_resolve_cookie_secure(request),
+            samesite=_resolve_cookie_samesite(request),
+        )
         return response
 
     @router.get("/auth/me", response_model=None)

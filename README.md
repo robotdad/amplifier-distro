@@ -17,7 +17,7 @@ The installer verifies your environment, installs the `amp-distro` tool, and wal
 Then start the server:
 
 ```bash
-amp-distro serve
+amp-distro
 ```
 
 Open [http://localhost:8410](http://localhost:8410) to begin.
@@ -62,7 +62,7 @@ amplifier-distro ships an `amplifier-start` bundle with a set of conventions and
 - Persistent memory, planning mode
 - Vector search, recipes, content studio, session discovery, routines
 
-The onboarding experience guides setup. Capabilities can be enabled or changed at any time via `amp-distro serve`.
+The onboarding experience guides setup. Capabilities can be enabled or changed at any time via `amp-distro`.
 
 ## Developer Install
 
@@ -74,12 +74,15 @@ uv tool install -e .
 
 ## Commands
 
-### `amp-distro serve` — Start the experience server
+### `amp-distro` — Start the experience server
 
 ```bash
-amp-distro serve                 # Foreground on http://localhost:8410
-amp-distro serve --reload        # Auto-reload for development
+amp-distro                       # localhost:8410 (default)
+amp-distro --host 0.0.0.0        # Network mode — binds to all interfaces
+amp-distro --reload              # Auto-reload for development
 ```
+
+Smart defaults: binds to `localhost` by default. See [docs/HOSTING.md](docs/HOSTING.md) for remote-access and production hosting setup.
 
 ### `amp-distro backup` / `restore` — State backup
 
