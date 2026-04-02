@@ -58,6 +58,12 @@ def _serve_options(func):
         click.option(
             "--log-level", default=None, help="Log level: debug|info|warning|error."
         ),
+        click.option(
+            "--no-browser",
+            is_flag=True,
+            default=False,
+            help="Do not open a browser tab when the server becomes ready.",
+        ),
     ]
     for option in reversed(options):
         func = option(func)
@@ -80,6 +86,7 @@ def main(
     no_auth: bool,
     reload: bool,
     log_level: str | None,
+    no_browser: bool,
 ) -> None:
     """amp-distro — Amplifier distro experience service."""
     if ctx.invoked_subcommand is None:
@@ -110,7 +117,123 @@ def main(
             log_level=log_level,
             home_redirect="/distro/",
             auth_by_default=auth_by_default,
+            no_browser=no_browser,
         )
+
+
+def _detect_wsl() -> bool:
+    """Return True if running inside Windows Subsystem for Linux."""
+    try:
+        with open("/proc/version") as fh:
+            return "microsoft" in fh.read().lower()
+    except OSError:
+        return False
+
+
+def _open_browser(url: str) -> None:
+    """Open *url* in the user's browser — macOS, Linux, or WSL-aware.
+
+    Swallows all errors silently; browser launch is best-effort.
+    """
+    import subprocess
+
+    if _detect_wsl():
+        # WSL: hand off to the Windows browser via PowerShell
+        try:
+            subprocess.run(
+                ["powershell.exe", "start", url],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except FileNotFoundError:
+            pass  # powershell.exe not on PATH — skip silently
+        return
+
+    import sys
+
+    if sys.platform == "darwin":
+        subprocess.run(
+            ["open", url],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    else:
+        # Linux (non-WSL): xdg-open is the standard launcher
+        subprocess.run(
+            ["xdg-open", url],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+
+def _wait_and_announce(
+    url: str,
+    ready_url: str,
+    *,
+    open_browser: bool,
+    poll_interval: float = 2.0,
+    timeout: float = 300.0,
+) -> None:
+    """Background thread: open browser when server accepts connections, announce when ready.
+
+    Two-phase approach:
+      Phase 1 — Wait for the server to start accepting HTTP requests (loading
+                 page is live).  Opens the browser at this point so the user
+                 sees the loading screen while pre-warm continues.
+      Phase 2 — Continue polling until /ready returns {"ready": true}, then
+                 re-print the URL prominently so it is visible in the log.
+
+    Runs as a daemon thread — never raises; swallows all exceptions silently.
+    """
+    import ssl
+    import time
+    import urllib.request
+
+    # Accept self-signed certs for --tls auto / --tls manual
+    ssl_ctx = ssl.create_default_context()
+    ssl_ctx.check_hostname = False
+    ssl_ctx.verify_mode = ssl.CERT_NONE
+
+    deadline = time.monotonic() + timeout
+
+    # --- Phase 1: wait for the server to respond at all ---
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(ready_url, timeout=2, context=ssl_ctx) as resp:
+                data = json.loads(resp.read())
+            # Got a response — server is up and serving the loading page.
+            if open_browser:
+                _open_browser(url)
+            # If it's already fully ready on first poll, announce and exit.
+            if data.get("ready"):
+                click.echo(f"\n  \u2713 amp-distro ready \u2014 {url}\n")
+                return
+            break  # server is up but still warming — move to phase 2
+        except Exception:
+            pass
+        time.sleep(poll_interval)
+    else:
+        # Timed out before server accepted any connection — surface URL and bail.
+        click.echo(f"\n  amp-distro: {url}\n")
+        return
+
+    # --- Phase 2: wait for pre-warm to finish, then re-announce the URL ---
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(ready_url, timeout=2, context=ssl_ctx) as resp:
+                data = json.loads(resp.read())
+            if data.get("ready"):
+                click.echo(f"\n  \u2713 amp-distro ready \u2014 {url}\n")
+                return
+        except Exception:
+            pass
+        time.sleep(poll_interval)
+
+    # Timed out during warm-up — surface the URL anyway so it is not lost.
+    click.echo(f"\n  amp-distro: {url}\n")
 
 
 def _start_server(
@@ -125,6 +248,7 @@ def _start_server(
     home_redirect: str | None,
     *,
     auth_by_default: bool = False,
+    no_browser: bool = False,
 ) -> None:
     """Common server startup logic."""
     # --ssl-certfile implies manual TLS mode when tls_mode is still default
@@ -168,10 +292,24 @@ def _start_server(
 
     # Pre-startup summary — gives the user something to see while bundles load.
     scheme = "https" if tls_mode != "off" else "http"
+    base_url = f"{scheme}://{host}:{effective_port}"
     click.echo(
-        f"\n  amp-distro starting on {scheme}://{host}:{effective_port}\n"
+        f"\n  amp-distro starting on {base_url}\n"
         f"  Bundle loading may take a minute on first run.\n"
     )
+
+    # Background thread: re-announces the URL and optionally opens the browser
+    # once the /ready endpoint reports the server is fully warmed up.
+    import threading
+
+    _ready_thread = threading.Thread(
+        target=_wait_and_announce,
+        args=(base_url, f"{base_url}/ready"),
+        kwargs={"open_browser": not no_browser},
+        daemon=True,
+        name="amp-distro-ready-watcher",
+    )
+    _ready_thread.start()
 
     # Write PID file so doctor and other tools can find the running server.
     pid_path = (
