@@ -44,8 +44,6 @@ class Provider:
     source_url: str = ""
     console_url: str = ""
     fallback_models: tuple[str, ...] = ()
-    base_url: str | None = None
-    api_key_config: str | None = None
 
 
 @dataclass
@@ -119,20 +117,6 @@ PROVIDERS: dict[str, Provider] = {
         console_url="https://aistudio.google.com/apikey",
         fallback_models=("gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"),
     ),
-    "xai": Provider(
-        id="xai",
-        name="xAI",
-        description="Grok models via xAI API",
-        include=f"{_FOUNDATION_GIT_URI}#subdirectory=providers/openai-gpt.yaml",
-        key_prefix="xai-",
-        env_var="XAI_API_KEY",
-        default_model="grok-3",
-        module_id="provider-openai",
-        console_url="https://console.x.ai/",
-        fallback_models=("grok-4", "grok-3", "grok-3-mini"),
-        base_url="https://api.x.ai/v1",
-        api_key_config="api_key",
-    ),
     "ollama": Provider(
         id="ollama",
         name="Ollama",
@@ -191,19 +175,12 @@ def detect_provider(api_key: str) -> str | None:
         return "openai"
     if api_key.startswith("AI"):
         return "google"
-    if api_key.startswith("xai-"):
-        return "xai"
     return None
 
 
 # ---------------------------------------------------------------------------
 # Path helpers
 # ---------------------------------------------------------------------------
-
-
-def _normalize_url(url: str) -> str:
-    """Normalize a URL for comparison by stripping trailing slashes."""
-    return url.rstrip("/")
 
 
 def _find_existing_entry(
@@ -213,12 +190,8 @@ def _find_existing_entry(
 
     New entries (written by this module) have an ``id`` field.  Legacy entries
     written by ``amplifier-app-cli`` only have a ``module`` field and no ``id``.
-
-    For modules shared by multiple providers (``provider-openai`` is used by
-    both ``openai`` and ``xai``), disambiguation is done via ``config.base_url``:
-    xAI entries have a ``base_url``; OpenAI entries do not.  For all other
-    modules a module-name match alone is sufficient, regardless of any custom
-    ``base_url`` the user may have added to their config block.
+    Each provider module is unique, so a module-name match on legacy entries is
+    sufficient.
     """
     for entry in providers_list:
         # New format: match by id (fast path, exact)
@@ -231,21 +204,8 @@ def _find_existing_entry(
         if entry.get("module") != provider.module_id:
             continue
 
-        # Module matches.  Disambiguate only for provider-openai, which is
-        # shared between openai (no base_url) and xai (has base_url).
-        if provider.module_id == "provider-openai":
-            entry_base_url = entry.get("config", {}).get("base_url")
-            if provider.base_url and entry_base_url:
-                # Both have base_url — must agree
-                if _normalize_url(entry_base_url) == _normalize_url(provider.base_url):
-                    return entry
-            elif not provider.base_url and not entry_base_url:
-                # Neither has base_url — module match is sufficient
-                return entry
-            # One has base_url and the other doesn't — different providers
-        else:
-            # All other modules are unique — module name alone is sufficient
-            return entry
+        # Module name is unique per provider — match is sufficient
+        return entry
 
     return None
 
@@ -374,8 +334,6 @@ def add_provider_config(settings: DistroPluginSettings, provider_id: str) -> Non
         "api_key": f"${{{provider.env_var}}}",
         "priority": _PRIMARY_PRIORITY,
     }
-    if provider.base_url:
-        config_block["base_url"] = provider.base_url
 
     new_entry: dict[str, Any] = {
         "id": provider.id,
