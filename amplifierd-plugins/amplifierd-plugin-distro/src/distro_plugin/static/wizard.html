@@ -598,6 +598,12 @@ const state = {
   selectedProvider: null,     // which provider card is expanded for key entry
   providerKeyInput: '',       // current key input value
   savingProvider: null,       // provider ID currently being saved
+  selectingModelFor: null,    // provider ID currently in model-picker sub-step
+  modelPickerData: {},        // {[pid]: {models: [], default_model: ""}} from Phase 1
+  modelSelection: {},         // {[pid]: selectedModel} user's current choice
+  pendingGhToken: {},         // {[pid]: token} held between Phase 1 and Phase 2
+  modelPickerError: {},       // {[pid]: message} for Copilot auth failure state
+  customModelInput: {},       // {[pid]: string} text input when "Other" is selected
   // Step 4 - Modules
   modules: [],
   selectedModules: new Set(),
