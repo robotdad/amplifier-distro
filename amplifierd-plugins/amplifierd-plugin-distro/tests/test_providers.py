@@ -553,3 +553,63 @@ def test_register_github_copilot_writes_gh_token_when_provided(settings, monkeyp
     content = keys_path.read_text()
     assert "GITHUB_TOKEN" in content
     assert "gho_extracted_token_123" in content
+
+
+def test_handle_provider_request_activates_keyless(settings, monkeypatch):
+    """Sending provider='github-copilot' with no api_key activates it directly."""
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    result = handle_provider_request(settings, provider="github-copilot", api_key="")
+    assert result["status"] == "ok"
+    assert result["provider"] == "github-copilot"
+
+
+def test_handle_provider_request_with_model_and_gh_token(settings, monkeypatch):
+    """handle_provider_request passes model and gh_token through to registration."""
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    result = handle_provider_request(
+        settings,
+        provider="github-copilot",
+        api_key="",
+        model="gpt-5.4",
+        gh_token="gho_test_token",
+    )
+    assert result["status"] == "ok"
+    # Verify model was written to settings.yaml
+    data = yaml.safe_load(_settings_path(settings).read_text())
+    entry = next(e for e in data["config"]["providers"] if e["id"] == "github-copilot")
+    assert entry["config"]["default_model"] == "gpt-5.4"
+    # Verify gh_token was written to keys.env
+    keys = load_keys(settings)
+    assert keys.get("GITHUB_TOKEN") == "gho_test_token"
+
+
+def test_sync_providers_does_not_autoregister_keyless(settings, monkeypatch):
+    """sync_providers() does not auto-register keyless providers."""
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_testtoken123")
+    results = sync_providers(settings)
+    assert not any(r.provider_id == "github-copilot" for r in results)
+
+
+def test_check_provider_status_github_copilot_has_key_without_env(
+    settings, monkeypatch
+):
+    """Keyless providers always report has_key=True regardless of env vars."""
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.delenv("COPILOT_GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("COPILOT_AGENT_TOKEN", raising=False)
+    status = check_provider_status(settings, "github-copilot")
+    assert status["has_key"] is True
+    assert status["in_settings"] is False
+    assert status["configured"] is False
+
+
+def test_check_provider_status_github_copilot_configured(settings, monkeypatch):
+    """Fully registered GitHub Copilot shows configured=True."""
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    register_provider(settings, "github-copilot", "")
+    status = check_provider_status(settings, "github-copilot")
+    assert status["has_key"] is True
+    assert status["in_settings"] is True
+    assert status["in_overlay"] is True
+    assert status["configured"] is True

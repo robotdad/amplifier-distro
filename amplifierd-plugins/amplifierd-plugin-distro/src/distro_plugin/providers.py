@@ -492,9 +492,12 @@ def check_provider_status(
 
     provider = PROVIDERS[provider_id]
 
-    # 1. Key in env or keys.env
-    keys = load_keys(settings)
-    has_key = bool(os.environ.get(provider.env_var) or keys.get(provider.env_var))
+    # 1. Key in env or keys.env (keyless providers always have_key=True)
+    if not provider.needs_key:
+        has_key = True
+    else:
+        keys = load_keys(settings)
+        has_key = bool(os.environ.get(provider.env_var) or keys.get(provider.env_var))
 
     # 2. Provider module listed in settings.yaml
     in_settings = False
@@ -561,12 +564,17 @@ def handle_provider_request(
     *,
     provider: str = "",
     api_key: str = "",
+    model: str = "",
+    gh_token: str = "",
 ) -> dict[str, object]:
     """Shared handler for provider add/update requests.
 
-    Supports two modes:
+    Supports three modes:
 
     - **Explicit key**: *api_key* provided — detect provider and register.
+    - **Keyless**: *provider* is a keyless provider (e.g. ``github-copilot``) —
+      register directly without requiring a key, optionally accepting *model*
+      and *gh_token*.
     - **Use existing key**: *provider* set, no *api_key* — look up key from
       environment or ``keys.env`` and register.
     """
@@ -574,17 +582,25 @@ def handle_provider_request(
         provider_id = detect_provider(api_key) or provider
         if not provider_id or provider_id not in PROVIDERS:
             return {"status": "error", "detail": "Unknown provider or key format"}
-        return _build_result(register_provider(settings, provider_id, api_key))
+        return _build_result(
+            register_provider(settings, provider_id, api_key, model=model)
+        )
 
     if provider and provider in PROVIDERS:
         prov = PROVIDERS[provider]
+        if not prov.needs_key:
+            return _build_result(
+                register_provider(
+                    settings, provider, "", model=model, gh_token=gh_token
+                )
+            )
         key = os.environ.get(prov.env_var) or load_keys(settings).get(prov.env_var)
         if not key:
             return {
                 "status": "error",
                 "detail": f"No key found for {prov.name} in environment or keys.env",
             }
-        return _build_result(register_provider(settings, provider, key))
+        return _build_result(register_provider(settings, provider, key, model=model))
 
     return {"status": "error", "detail": "Provide api_key or provider ID"}
 
@@ -602,6 +618,8 @@ def sync_providers(
     results: list[ProviderRegistrationResult] = []
 
     for pid, provider in PROVIDERS.items():
+        if not provider.needs_key:
+            continue
         key = os.environ.get(provider.env_var) or keys.get(provider.env_var)
         if not key:
             continue
