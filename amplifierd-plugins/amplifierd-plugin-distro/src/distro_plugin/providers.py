@@ -44,6 +44,7 @@ class Provider:
     source_url: str = ""
     console_url: str = ""
     fallback_models: tuple[str, ...] = ()
+    auth_env_vars: tuple[str, ...] = ()  # checked in priority order; non-empty only for keyless providers
     needs_key: bool = True
 
 
@@ -166,15 +167,21 @@ PROVIDERS: dict[str, Provider] = {
             "claude-opus-4.6",
             "claude-haiku-4.5",
             "claude-sonnet-4.5",
-            "claude-3.7-sonnet",
+            "claude-opus-4.5",
+            "claude-sonnet-4",
             "gpt-5.4",
+            "gpt-5.3-codex",
+            "gpt-5.2-codex",
             "gpt-5.2",
+            "gpt-5.1",
             "gpt-5-mini",
             "gpt-4.1",
-            "gemini-3.1-pro-preview",
-            "gemini-2.5-pro",
-            "gemini-2.5-flash",
-            "gemini-2.0-flash",
+        ),
+        auth_env_vars=(
+            "COPILOT_AGENT_TOKEN",
+            "COPILOT_GITHUB_TOKEN",
+            "GH_TOKEN",
+            "GITHUB_TOKEN",
         ),
         needs_key=False,
     ),
