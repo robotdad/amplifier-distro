@@ -30,9 +30,9 @@ from distro_plugin.providers import (
 
 
 def test_catalog_has_entries():
-    """PROVIDERS catalog contains all 5 expected providers."""
-    assert len(PROVIDERS) == 5
-    for pid in ("anthropic", "openai", "google", "ollama", "azure"):
+    """PROVIDERS catalog contains all 6 expected providers."""
+    assert len(PROVIDERS) == 6
+    for pid in ("anthropic", "openai", "google", "ollama", "azure", "github-copilot"):
         assert pid in PROVIDERS
 
 
@@ -207,16 +207,55 @@ def test_register_provider_full_orchestration(settings, monkeypatch):
 
 
 def test_get_provider_catalog_returns_all_providers_with_status(settings):
-    """get_provider_catalog returns entries for all 5 providers with status."""
+    """get_provider_catalog returns entries for all 6 providers with status."""
     catalog = get_provider_catalog(settings)
-    assert len(catalog) == 5
+    assert len(catalog) == 6
     ids = {entry["id"] for entry in catalog}
-    assert ids == {"anthropic", "openai", "google", "ollama", "azure"}
+    assert ids == {"anthropic", "openai", "google", "ollama", "azure", "github-copilot"}
     for entry in catalog:
         assert "has_key" in entry
         assert "in_settings" in entry
         assert "in_overlay" in entry
         assert "configured" in entry
+
+
+def test_github_copilot_in_catalog():
+    """github-copilot provider exists in PROVIDERS with correct attributes."""
+    assert "github-copilot" in PROVIDERS
+    copilot = PROVIDERS["github-copilot"]
+    assert copilot.needs_key is False
+    assert copilot.module_id == "provider-github-copilot"
+    assert copilot.env_var == "GITHUB_TOKEN"
+    assert copilot.default_model == "claude-sonnet-4.6"
+    assert len(copilot.fallback_models) == 13
+
+
+def test_needs_key_defaults_true():
+    """All standard API-key providers have needs_key=True."""
+    for pid in ("anthropic", "openai", "google", "ollama", "azure"):
+        assert PROVIDERS[pid].needs_key is True, f"{pid}.needs_key should be True"
+
+
+def test_fallback_models_populated_for_all_providers():
+    """Every provider in the catalog has at least one fallback model."""
+    for pid, provider in PROVIDERS.items():
+        assert len(provider.fallback_models) > 0, f"{pid} has no fallback_models"
+
+
+def test_provider_defaults_updated():
+    """default_model matches design table for all 6 providers."""
+    expected = {
+        "anthropic": "claude-sonnet-4-6",
+        "openai": "gpt-5.4",
+        "google": "gemini-3.1-pro-preview",
+        "ollama": "llama3.1",
+        "azure": "gpt-5.2",
+        "github-copilot": "claude-sonnet-4.6",
+    }
+    for pid, model in expected.items():
+        assert PROVIDERS[pid].default_model == model, (
+            f"{pid}.default_model expected {model!r}, got {PROVIDERS[pid].default_model!r}"
+        )
 
 
 # -- handle_provider_request -------------------------------------------------
@@ -461,3 +500,134 @@ class TestLegacySettingsCompat:
             if e.get("module") == "provider-anthropic" or e.get("id") == "anthropic"
         ]
         assert len(anthropic_entries) == 1
+
+
+def test_add_provider_config_uses_model_override(settings):
+    """add_provider_config with model param writes that model instead of catalog default."""
+    add_provider_config(settings, "anthropic", model="claude-opus-4-6")
+    data = yaml.safe_load(_settings_path(settings).read_text())
+    entry = data["config"]["providers"][0]
+    assert entry["config"]["default_model"] == "claude-opus-4-6"
+
+
+def test_add_provider_config_omits_api_key_for_keyless(settings):
+    """settings.yaml entry for GitHub Copilot has no api_key field."""
+    add_provider_config(settings, "github-copilot")
+    data = yaml.safe_load(_settings_path(settings).read_text())
+    entry = next(e for e in data["config"]["providers"] if e["id"] == "github-copilot")
+    assert "api_key" not in entry["config"]
+    assert entry["config"]["default_model"] == "claude-sonnet-4.6"
+
+
+def test_register_with_model_override(settings, monkeypatch):
+    """register_provider with model param writes that model to settings.yaml."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    result = register_provider(
+        settings, "anthropic", "sk-ant-test", model="claude-opus-4-6"
+    )
+    assert result.ok is True
+    data = yaml.safe_load(_settings_path(settings).read_text())
+    entry = next(e for e in data["config"]["providers"] if e["id"] == "anthropic")
+    assert entry["config"]["default_model"] == "claude-opus-4-6"
+
+
+def test_register_github_copilot_skips_keys_env(settings, monkeypatch):
+    """register_provider for a keyless provider skips keys.env entirely."""
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    result = register_provider(settings, "github-copilot", "")
+    assert result.key_saved is True  # "no key needed" still counts as ok
+    assert result.settings_updated is True
+    keys_path = _keys_path(settings)
+    assert not keys_path.exists() or "GITHUB_TOKEN" not in keys_path.read_text()
+
+
+def test_register_github_copilot_writes_gh_token_when_provided(settings, monkeypatch):
+    """When gh_token is provided, register_provider writes GITHUB_TOKEN to keys.env."""
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    result = register_provider(
+        settings, "github-copilot", "", gh_token="gho_extracted_token_123"
+    )
+    assert result.ok is True
+    keys_path = _keys_path(settings)
+    assert keys_path.exists()
+    content = keys_path.read_text()
+    assert "GITHUB_TOKEN" in content
+    assert "gho_extracted_token_123" in content
+
+
+def test_handle_provider_request_activates_keyless(settings, monkeypatch):
+    """Sending provider='github-copilot' with no api_key activates it directly."""
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    result = handle_provider_request(settings, provider="github-copilot", api_key="")
+    assert result["status"] == "ok"
+    assert result["provider"] == "github-copilot"
+
+
+def test_handle_provider_request_with_model_and_gh_token(settings, monkeypatch):
+    """handle_provider_request passes model and gh_token through to registration."""
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    result = handle_provider_request(
+        settings,
+        provider="github-copilot",
+        api_key="",
+        model="gpt-5.4",
+        gh_token="gho_test_token",
+    )
+    assert result["status"] == "ok"
+    # Verify model was written to settings.yaml
+    data = yaml.safe_load(_settings_path(settings).read_text())
+    entry = next(e for e in data["config"]["providers"] if e["id"] == "github-copilot")
+    assert entry["config"]["default_model"] == "gpt-5.4"
+    # Verify gh_token was written to keys.env
+    keys = load_keys(settings)
+    assert keys.get("GITHUB_TOKEN") == "gho_test_token"
+
+
+def test_sync_providers_does_not_autoregister_keyless(settings, monkeypatch):
+    """sync_providers() does not auto-register keyless providers."""
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_testtoken123")
+    results = sync_providers(settings)
+    assert not any(r.provider_id == "github-copilot" for r in results)
+
+
+def test_check_provider_status_github_copilot_has_key_without_env(
+    settings, monkeypatch
+):
+    """Keyless providers always report has_key=True regardless of env vars."""
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.delenv("COPILOT_GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("COPILOT_AGENT_TOKEN", raising=False)
+    status = check_provider_status(settings, "github-copilot")
+    assert status["has_key"] is True
+    assert status["in_settings"] is False
+    assert status["configured"] is False
+
+
+def test_check_provider_status_github_copilot_configured(settings, monkeypatch):
+    """Fully registered GitHub Copilot shows configured=True."""
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    register_provider(settings, "github-copilot", "")
+    status = check_provider_status(settings, "github-copilot")
+    assert status["has_key"] is True
+    assert status["in_settings"] is True
+    assert status["in_overlay"] is True
+    assert status["configured"] is True
+
+
+def test_get_provider_catalog_includes_needs_key_and_fallback_models(settings):
+    """Catalog response includes needs_key, default_model, and fallback_models for all providers."""
+    catalog = get_provider_catalog(settings)
+    for entry in catalog:
+        assert "needs_key" in entry, f"{entry['id']} missing needs_key"
+        assert "default_model" in entry, f"{entry['id']} missing default_model"
+        assert "fallback_models" in entry, f"{entry['id']} missing fallback_models"
+
+    copilot = next(p for p in catalog if p["id"] == "github-copilot")
+    assert copilot["needs_key"] is False
+    assert copilot["default_model"] == "claude-sonnet-4.6"
+    assert len(copilot["fallback_models"]) == 13
+
+    anthropic = next(p for p in catalog if p["id"] == "anthropic")
+    assert anthropic["needs_key"] is True
+    assert anthropic["default_model"] == "claude-sonnet-4-6"
