@@ -477,6 +477,34 @@ def register_provider(
     return result
 
 
+def update_provider_model(
+    settings: DistroPluginSettings, provider_id: str, model: str
+) -> bool:
+    """Update the default_model for an already-configured provider in settings.yaml.
+
+    Returns ``True`` if the model was updated, ``False`` if the provider
+    is not found in the catalog or not configured in settings.
+    """
+    provider = PROVIDERS.get(provider_id)
+    if not provider:
+        return False
+
+    settings_path = _settings_path(settings)
+    if not settings_path.exists():
+        return False
+
+    data = yaml.safe_load(settings_path.read_text()) or {}
+    providers_list = data.get("config", {}).get("providers", [])
+
+    entry = _find_existing_entry(providers_list, provider)
+    if entry is None:
+        return False
+
+    entry.setdefault("config", {})["default_model"] = model
+    settings_path.write_text(yaml.dump(data, default_flow_style=False, sort_keys=False))
+    return True
+
+
 def check_provider_status(
     settings: DistroPluginSettings, provider_id: str
 ) -> dict[str, bool]:
@@ -543,6 +571,11 @@ def get_provider_catalog(
                 "in_settings": status["in_settings"],
                 "in_overlay": status["in_overlay"],
                 "configured": status["configured"],
+                "token_detected": (
+                    bool(any(os.environ.get(v) for v in p.auth_env_vars))
+                    if not p.needs_key and p.auth_env_vars
+                    else status["has_key"]
+                ),
             }
         )
     return providers

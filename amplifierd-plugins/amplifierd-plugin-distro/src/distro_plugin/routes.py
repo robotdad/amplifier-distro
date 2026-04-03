@@ -42,6 +42,7 @@ from distro_plugin.providers import (
     get_provider_catalog,
     handle_provider_request,
     sync_providers,
+    update_provider_model,
 )
 from distro_plugin.reload import request_reload
 
@@ -83,6 +84,11 @@ class ProviderRequest(BaseModel):
 class InterfacesData(BaseModel):
     install_cli: bool = False
     install_tui: bool = False
+
+
+class ModelUpdateRequest(BaseModel):
+    provider: str
+    model: str
 
 
 class FeatureToggle(BaseModel):
@@ -365,12 +371,37 @@ def create_routes() -> APIRouter:
         """Detect and register a provider from an API key or provider ID."""
         settings = _get_settings(request)
         result = handle_provider_request(
-            settings, provider=body.provider, api_key=body.api_key
+            settings,
+            provider=body.provider,
+            api_key=body.api_key,
+            model=body.model,
+            gh_token=body.gh_token,
         )
         if result.get("status") == "error":
             raise HTTPException(status_code=400, detail=result.get("detail", ""))
         request_reload(request.app)
         return result
+
+    @router.put("/provider/model")
+    async def put_provider_model(
+        request: Request, body: ModelUpdateRequest
+    ) -> dict[str, Any]:
+        """Update the model for an already-configured provider.
+
+        Writes the new default_model to settings.yaml and triggers a
+        hot reload so the change takes effect immediately.
+        """
+        settings = _get_settings(request)
+        if body.provider not in PROVIDERS:
+            raise HTTPException(status_code=400, detail="Unknown provider")
+        updated = update_provider_model(settings, body.provider, body.model)
+        if not updated:
+            raise HTTPException(
+                status_code=400,
+                detail="Provider not configured — register it first",
+            )
+        request_reload(request.app)
+        return {"status": "ok", "provider": body.provider, "model": body.model}
 
     @router.get("/preflight")
     async def get_preflight(request: Request) -> dict[str, Any]:

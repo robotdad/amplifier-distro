@@ -354,6 +354,53 @@ body {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Model Picker Row                                                   */
+/* ------------------------------------------------------------------ */
+.provider-model-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--canvas-mist);
+}
+.provider-model-row select {
+  flex: 1;
+  padding: 6px 10px;
+  background: var(--canvas);
+  border: 1px solid var(--canvas-mist);
+  border-radius: var(--radius-subtle);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease-out);
+}
+.provider-model-row select:focus { outline: none; border-color: var(--signal); }
+.provider-model-row select:disabled { opacity: 0.5; cursor: not-allowed; }
+.provider-model-row .current-model {
+  font-size: 12px;
+  color: var(--ink-slate);
+  font-family: monospace;
+  flex: 1;
+}
+.btn-model-save {
+  padding: 5px 12px;
+  background: var(--signal);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-subtle);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out);
+  white-space: nowrap;
+}
+.btn-model-save:hover { background: var(--signal-light); }
+.btn-model-save:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ------------------------------------------------------------------ */
 /*  Feature Rows                                                       */
 /* ------------------------------------------------------------------ */
 .feature-list {
@@ -827,6 +874,10 @@ const state = {
   providerKeyInput: '',
   savingProvider: null,
   providerSaveResult: null,
+  // Model selection
+  modelSelection: {},     // {[pid]: selectedModel} pending selections
+  savingModel: null,      // provider ID currently saving model
+  modelSaveResult: null,  // {provider, status} last save result
 };
 
 const API = '/distro';
@@ -1247,15 +1298,25 @@ function renderProviders() {
         + '</button></div>';
     }
 
-    // "Get an API key" link for unconfigured providers without a key
-    if (!p.configured && !p.has_key) {
+    // "Get an API key" link — only for providers that require a key
+    if (!p.configured && !p.has_key && p.needs_key !== false) {
       html += '<div style="margin-top: 8px;">'
         + '<a href="' + esc(p.console_url) + '" target="_blank" rel="noopener" '
         + 'style="font-size: 12px; color: var(--signal);">Get an API key</a></div>';
     }
 
-    // Key input row (when card is expanded)
-    if (isSelected) {
+    // "Activate" button for keyless providers that haven't been configured yet
+    if (!p.configured && p.needs_key === false) {
+      html += '<div class="provider-env-row">'
+        + '<span class="env-hint">No API key required</span>'
+        + '<button class="btn-sm btn-secondary" data-settings-activate="' + esc(p.id) + '"'
+        +   (state.savingProvider === p.id ? ' disabled' : '') + '>'
+        +   (state.savingProvider === p.id ? 'Activating...' : 'Activate')
+        + '</button></div>';
+    }
+
+    // Key input row (when card is expanded — only for providers that need a key)
+    if (isSelected && p.needs_key !== false) {
       html += '<div class="provider-key-row">'
         + '<input type="password" data-provider-key="' + esc(p.id) + '"'
         +   ' placeholder="' + esc(placeholder) + '" value="' + esc(state.providerKeyInput) + '">'
@@ -1271,6 +1332,36 @@ function renderProviders() {
         + '<button class="btn-test" id="btn-test-' + esc(p.id) + '" onclick="testProvider(\'' + esc(p.id) + '\')">Test</button>'
         + '<span class="status-badge connected"><span class="status-dot"></span> Connected</span>'
         + '</div>';
+    }
+
+    // Model picker for configured providers
+    if (p.configured) {
+      const models = p.fallback_models || [];
+      const currentModel = state.modelSelection[p.id] || p.default_model || '';
+      const hasChanged = currentModel !== p.default_model;
+      const isSavingModel = state.savingModel === p.id;
+
+      if (models.length > 0) {
+        html += '<div class="provider-model-row">'
+          + '<select data-settings-model-select="' + esc(p.id) + '"'
+          + (isSavingModel ? ' disabled' : '') + '>';
+        models.forEach(m => {
+          html += '<option value="' + esc(m) + '"' + (currentModel === m ? ' selected' : '') + '>'
+            + esc(m) + '</option>';
+        });
+        html += '</select>';
+        if (hasChanged) {
+          html += '<button class="btn-model-save" data-settings-model-save="' + esc(p.id) + '"'
+            + (isSavingModel ? ' disabled' : '') + '>'
+            + (isSavingModel ? 'Saving...' : 'Save')
+            + '</button>';
+        }
+        html += '</div>';
+      } else if (currentModel) {
+        html += '<div class="provider-model-row">'
+          + '<span class="current-model">' + esc(currentModel) + '</span>'
+          + '</div>';
+      }
     }
 
     // Save result message
@@ -1445,6 +1536,7 @@ function bindEvents() {
       if (e.target.closest('.provider-key-row')) return;
       if (e.target.closest('.provider-env-row')) return;
       if (e.target.closest('.provider-card-actions')) return;
+      if (e.target.closest('.provider-model-row')) return;
       const pid = card.dataset.settingsProvider;
       if (state.selectedProvider === pid) {
         state.selectedProvider = null;
@@ -1513,6 +1605,68 @@ function bindEvents() {
       } else {
         const detail = (res && res.detail) || 'Failed to save key.';
         state.providerSaveResult = { id: pid, ok: false, message: detail };
+      }
+      render();
+    });
+  });
+
+  // Model dropdown change — update pending selection and re-render to show Save button
+  document.querySelectorAll('[data-settings-model-select]').forEach(sel => {
+    sel.addEventListener('change', () => {
+      const pid = sel.dataset.settingsModelSelect;
+      state.modelSelection[pid] = sel.value;
+      render();
+    });
+  });
+
+  // Model save button — PUT /provider/model
+  document.querySelectorAll('[data-settings-model-save]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const pid = btn.dataset.settingsModelSave;
+      const model = state.modelSelection[pid] || '';
+      if (!model) return;
+      state.savingModel = pid;
+      state.modelSaveResult = null;
+      render();
+      const res = await api('PUT', '/provider/model', { provider: pid, model: model });
+      state.savingModel = null;
+      if (res && !res.error) {
+        const prov = state.providers.find(p => p.id === pid);
+        if (prov) prov.default_model = model;
+        delete state.modelSelection[pid];
+        state.modelSaveResult = { provider: pid, status: 'ok' };
+        showToast('Model saved', 'success');
+      } else {
+        const detail = (res && res.detail) || (res && res.error) || 'Failed to save model.';
+        state.modelSaveResult = { provider: pid, status: 'error' };
+        showToast(detail, 'error');
+      }
+      render();
+    });
+  });
+
+  // Keyless provider activate button — POST /provider with no api_key
+  document.querySelectorAll('[data-settings-activate]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const pid = btn.dataset.settingsActivate;
+      state.savingProvider = pid;
+      state.providerSaveResult = null;
+      render();
+      const res = await api('POST', '/provider', { provider: pid });
+      state.savingProvider = null;
+      if (res && !res.error && res.verified) {
+        const prov = state.providers.find(p => p.id === (res.provider || pid));
+        if (prov) prov.configured = true;
+        let msg = (res.provider_name || pid) + ' activated';
+        if (res.overlay_error) msg += ' (overlay not updated: ' + res.overlay_error + ')';
+        state.providerSaveResult = { id: res.provider || pid, ok: !res.overlay_error, message: msg };
+        showToast(msg, 'success');
+      } else {
+        const detail = (res && res.detail) || 'Failed to activate provider.';
+        state.providerSaveResult = { id: pid, ok: false, message: detail };
+        showToast(detail, 'error');
       }
       render();
     });
