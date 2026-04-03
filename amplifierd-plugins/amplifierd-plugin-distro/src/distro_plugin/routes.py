@@ -813,7 +813,7 @@ def create_routes() -> APIRouter:
             tags = (
                 f"<script>"
                 f"window.__AUTH_ENABLED={str(auth_on).lower()};"
-                f"window.__OPENAI_CONFIGURED={str(openai_status['configured']).lower()}"
+                f"window.__OPENAI_CONFIGURED={str(openai_status['has_key']).lower()}"
                 f"</script>"
             )
             content = content.replace("</head>", tags + "</head>", 1)
