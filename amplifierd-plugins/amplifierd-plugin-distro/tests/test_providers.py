@@ -613,3 +613,21 @@ def test_check_provider_status_github_copilot_configured(settings, monkeypatch):
     assert status["in_settings"] is True
     assert status["in_overlay"] is True
     assert status["configured"] is True
+
+
+def test_get_provider_catalog_includes_needs_key_and_fallback_models(settings):
+    """Catalog response includes needs_key, default_model, and fallback_models for all providers."""
+    catalog = get_provider_catalog(settings)
+    for entry in catalog:
+        assert "needs_key" in entry, f"{entry['id']} missing needs_key"
+        assert "default_model" in entry, f"{entry['id']} missing default_model"
+        assert "fallback_models" in entry, f"{entry['id']} missing fallback_models"
+
+    copilot = next(p for p in catalog if p["id"] == "github-copilot")
+    assert copilot["needs_key"] is False
+    assert copilot["default_model"] == "claude-sonnet-4.6"
+    assert len(copilot["fallback_models"]) == 13
+
+    anthropic = next(p for p in catalog if p["id"] == "anthropic")
+    assert anthropic["needs_key"] is True
+    assert anthropic["default_model"] == "claude-sonnet-4-6"
