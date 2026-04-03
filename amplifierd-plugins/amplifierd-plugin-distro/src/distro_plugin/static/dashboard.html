@@ -35,7 +35,7 @@
       <div class="app-name">Chat</div>
       <div class="app-desc">AI chat in your browser, backed by Amplifier sessions.</div>
     </a>
-    <a href="/voice/" target="_blank" class="app-card">
+    <a href="/voice/" target="_blank" class="app-card" id="voice-card">
       <div class="app-icon">🎤</div>
       <div class="app-name">Voice</div>
       <div class="app-desc">Real-time voice conversations via OpenAI Realtime API.</div>
@@ -81,6 +81,17 @@
 <script src="/static/auth-widget.js"></script>
 <script>
   AmplifierAuth.init({ container: document.getElementById('auth-slot') });
+</script>
+<script>
+  if (!window.__OPENAI_CONFIGURED) {
+    const card = document.getElementById('voice-card');
+    if (card) {
+      card.removeAttribute('href');
+      card.style.opacity = '0.45';
+      card.style.pointerEvents = 'none';
+      card.querySelector('.app-desc').textContent = 'OpenAI provider required';
+    }
+  }
 </script>
 </body>
 </html>
