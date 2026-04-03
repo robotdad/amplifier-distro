@@ -1076,7 +1076,6 @@ function renderProvider() {
                             ${state.savingProvider === p.id ? 'disabled' : ''}>
                       ${state.savingProvider === p.id ? 'Saving...' : 'Confirm'}
                     </button>
-                    <a href="#" data-provider-back="${esc(p.id)}" style="font-size:0.85em;">&larr; Back</a>
                   </div>
                 </div>
               ` : ''}
@@ -1232,6 +1231,8 @@ function bindEvents() {
       if (e.target.tagName === 'A') return;
       if (e.target.closest('.provider-key-row')) return;
       if (e.target.closest('.provider-env-row')) return;
+      if (e.target.closest('.provider-model-row')) return;
+      if (e.target.closest('.provider-error-row')) return;
       const pid = card.dataset.provider;
       if (state.selectedProvider === pid) {
         state.selectedProvider = null;
