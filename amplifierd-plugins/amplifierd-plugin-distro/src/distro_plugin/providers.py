@@ -44,6 +44,7 @@ class Provider:
     source_url: str = ""
     console_url: str = ""
     fallback_models: tuple[str, ...] = ()
+    needs_key: bool = True
 
 
 @dataclass
@@ -81,14 +82,15 @@ PROVIDERS: dict[str, Provider] = {
         include=f"{_FOUNDATION_GIT_URI}#subdirectory=providers/anthropic-sonnet.yaml",
         key_prefix="sk-ant-",
         env_var="ANTHROPIC_API_KEY",
-        default_model="claude-sonnet-4-5",
+        default_model="claude-sonnet-4-6",
         module_id="provider-anthropic",
         source_url="git+https://github.com/microsoft/amplifier-module-provider-anthropic@main",
         console_url="https://console.anthropic.com/settings/keys",
         fallback_models=(
-            "claude-opus-4-5",
+            "claude-sonnet-4-6",
+            "claude-opus-4-6",
+            "claude-haiku-4-5",
             "claude-sonnet-4-5",
-            "claude-3-5-sonnet-20241022",
         ),
     ),
     "openai": Provider(
@@ -98,11 +100,11 @@ PROVIDERS: dict[str, Provider] = {
         include=f"{_FOUNDATION_GIT_URI}#subdirectory=providers/openai-gpt.yaml",
         key_prefix="sk-",
         env_var="OPENAI_API_KEY",
-        default_model="gpt-5.2",
+        default_model="gpt-5.4",
         module_id="provider-openai",
         source_url="git+https://github.com/microsoft/amplifier-module-provider-openai@main",
         console_url="https://platform.openai.com/api-keys",
-        fallback_models=("gpt-5.2", "gpt-5-mini", "gpt-4.1"),
+        fallback_models=("gpt-5.4", "gpt-5.2", "gpt-5-mini", "gpt-4.1"),
     ),
     "google": Provider(
         id="google",
@@ -111,11 +113,16 @@ PROVIDERS: dict[str, Provider] = {
         include=f"{_AMPLIFIER_START_URI}#subdirectory=providers/gemini-pro.yaml",
         key_prefix="AI",
         env_var="GOOGLE_API_KEY",
-        default_model="gemini-2.5-pro",
+        default_model="gemini-3.1-pro-preview",
         module_id="provider-gemini",
         source_url="git+https://github.com/microsoft/amplifier-module-provider-gemini@main",
         console_url="https://aistudio.google.com/apikey",
-        fallback_models=("gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"),
+        fallback_models=(
+            "gemini-3.1-pro-preview",
+            "gemini-2.5-pro",
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+        ),
     ),
     "ollama": Provider(
         id="ollama",
@@ -142,6 +149,34 @@ PROVIDERS: dict[str, Provider] = {
         source_url="git+https://github.com/microsoft/amplifier-module-provider-azure-openai@main",
         console_url="https://portal.azure.com/",
         fallback_models=("gpt-5.2", "gpt-5-mini", "gpt-4.1"),
+    ),
+    "github-copilot": Provider(
+        id="github-copilot",
+        name="GitHub Copilot",
+        description="Claude, GPT, and Gemini models via your GitHub Copilot subscription",
+        include=f"{_AMPLIFIER_START_URI}#subdirectory=providers/github-copilot.yaml",
+        key_prefix="",
+        env_var="GITHUB_TOKEN",
+        default_model="claude-sonnet-4.6",
+        module_id="provider-github-copilot",
+        source_url="git+https://github.com/microsoft/amplifier-module-provider-github-copilot@main",
+        console_url="https://github.com/features/copilot",
+        fallback_models=(
+            "claude-sonnet-4.6",
+            "claude-opus-4.6",
+            "claude-haiku-4.5",
+            "claude-sonnet-4.5",
+            "claude-3.7-sonnet",
+            "gpt-5.4",
+            "gpt-5.2",
+            "gpt-5-mini",
+            "gpt-4.1",
+            "gemini-3.1-pro-preview",
+            "gemini-2.5-pro",
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+        ),
+        needs_key=False,
     ),
 }
 

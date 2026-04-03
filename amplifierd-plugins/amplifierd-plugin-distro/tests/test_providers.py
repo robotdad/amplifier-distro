@@ -30,9 +30,9 @@ from distro_plugin.providers import (
 
 
 def test_catalog_has_entries():
-    """PROVIDERS catalog contains all 5 expected providers."""
-    assert len(PROVIDERS) == 5
-    for pid in ("anthropic", "openai", "google", "ollama", "azure"):
+    """PROVIDERS catalog contains all 6 expected providers."""
+    assert len(PROVIDERS) == 6
+    for pid in ("anthropic", "openai", "google", "ollama", "azure", "github-copilot"):
         assert pid in PROVIDERS
 
 
@@ -207,16 +207,55 @@ def test_register_provider_full_orchestration(settings, monkeypatch):
 
 
 def test_get_provider_catalog_returns_all_providers_with_status(settings):
-    """get_provider_catalog returns entries for all 5 providers with status."""
+    """get_provider_catalog returns entries for all 6 providers with status."""
     catalog = get_provider_catalog(settings)
-    assert len(catalog) == 5
+    assert len(catalog) == 6
     ids = {entry["id"] for entry in catalog}
-    assert ids == {"anthropic", "openai", "google", "ollama", "azure"}
+    assert ids == {"anthropic", "openai", "google", "ollama", "azure", "github-copilot"}
     for entry in catalog:
         assert "has_key" in entry
         assert "in_settings" in entry
         assert "in_overlay" in entry
         assert "configured" in entry
+
+
+def test_github_copilot_in_catalog():
+    """github-copilot provider exists in PROVIDERS with correct attributes."""
+    assert "github-copilot" in PROVIDERS
+    copilot = PROVIDERS["github-copilot"]
+    assert copilot.needs_key is False
+    assert copilot.module_id == "provider-github-copilot"
+    assert copilot.env_var == "GITHUB_TOKEN"
+    assert copilot.default_model == "claude-sonnet-4.6"
+    assert len(copilot.fallback_models) == 13
+
+
+def test_needs_key_defaults_true():
+    """All standard API-key providers have needs_key=True."""
+    for pid in ("anthropic", "openai", "google", "ollama", "azure"):
+        assert PROVIDERS[pid].needs_key is True, f"{pid}.needs_key should be True"
+
+
+def test_fallback_models_populated_for_all_providers():
+    """Every provider in the catalog has at least one fallback model."""
+    for pid, provider in PROVIDERS.items():
+        assert len(provider.fallback_models) > 0, f"{pid} has no fallback_models"
+
+
+def test_provider_defaults_updated():
+    """default_model matches design table for all 6 providers."""
+    expected = {
+        "anthropic": "claude-sonnet-4-6",
+        "openai": "gpt-5.4",
+        "google": "gemini-3.1-pro-preview",
+        "ollama": "llama3.1",
+        "azure": "gpt-5.2",
+        "github-copilot": "claude-sonnet-4.6",
+    }
+    for pid, model in expected.items():
+        assert PROVIDERS[pid].default_model == model, (
+            f"{pid}.default_model expected {model!r}, got {PROVIDERS[pid].default_model!r}"
+        )
 
 
 # -- handle_provider_request -------------------------------------------------
