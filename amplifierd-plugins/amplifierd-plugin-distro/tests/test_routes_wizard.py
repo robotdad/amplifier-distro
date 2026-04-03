@@ -317,3 +317,149 @@ def test_step_modules_creates_memory_dir_for_dev_memory(client, settings):
     assert memory_dir.exists(), (
         "step_modules must create the memory directory when dev-memory is enabled"
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 validate endpoint tests
+# ---------------------------------------------------------------------------
+
+
+def test_validate_provider_returns_model_list_for_standard_provider(client):
+    """POST /distro/setup/steps/provider/validate returns needs_model + model list for Anthropic."""
+    resp = client.post(
+        "/distro/setup/steps/provider/validate",
+        json={"provider": "anthropic", "api_key": "sk-ant-test123"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "needs_model"
+    assert "models" in data
+    assert "claude-sonnet-4-6" in data["models"]
+    assert data["default_model"] == "claude-sonnet-4-6"
+
+
+def test_validate_provider_copilot_with_env_token(client, monkeypatch):
+    """POST /distro/setup/steps/provider/validate for Copilot with GITHUB_TOKEN in env."""
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_envtoken123")
+    resp = client.post(
+        "/distro/setup/steps/provider/validate",
+        json={"provider": "github-copilot"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "needs_model"
+    assert data["token_source"] == "env"
+    assert data["gh_token"] == ""  # env tokens are not exposed
+    assert "claude-sonnet-4.6" in data["models"]
+
+
+def test_validate_provider_copilot_with_gh_cli(client, monkeypatch):
+    """POST /distro/setup/steps/provider/validate for Copilot with gh auth token subprocess."""
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.delenv("COPILOT_GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("COPILOT_AGENT_TOKEN", raising=False)
+
+    import subprocess
+
+    def fake_run(*args, **kwargs):
+        class FakeResult:
+            returncode = 0
+            stdout = "gho_fake_gh_cli_token"
+
+        return FakeResult()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    resp = client.post(
+        "/distro/setup/steps/provider/validate",
+        json={"provider": "github-copilot"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "needs_model"
+    assert data["token_source"] == "gh_cli"
+    assert data["gh_token"] == "gho_fake_gh_cli_token"
+
+
+def test_validate_provider_copilot_no_auth(client, monkeypatch):
+    """POST /distro/setup/steps/provider/validate for Copilot with no auth returns error."""
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.delenv("COPILOT_GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("COPILOT_AGENT_TOKEN", raising=False)
+
+    import subprocess
+
+    def fake_run(*args, **kwargs):
+        class FakeResult:
+            returncode = 1
+            stdout = ""
+
+        return FakeResult()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    resp = client.post(
+        "/distro/setup/steps/provider/validate",
+        json={"provider": "github-copilot"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "error"
+    assert "gh auth login" in data["detail"]
+
+
+def test_validate_provider_unknown_returns_error(client):
+    """POST /distro/setup/steps/provider/validate with unknown provider returns 400."""
+    resp = client.post(
+        "/distro/setup/steps/provider/validate",
+        json={"provider": "nonexistent"},
+    )
+    assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 registration with model + gh_token tests
+# ---------------------------------------------------------------------------
+
+
+def test_step_provider_with_model_writes_to_settings(settings, client, monkeypatch):
+    """POST /distro/setup/steps/provider with model param writes that model to settings.yaml."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    resp = client.post(
+        "/distro/setup/steps/provider",
+        json={
+            "provider": "anthropic",
+            "api_key": "sk-ant-test-key-12345",
+            "model": "claude-opus-4-6",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "ok"
+    assert data["model"] == "claude-opus-4-6"
+
+
+def test_step_provider_copilot_with_gh_token(settings, client, monkeypatch):
+    """POST /distro/setup/steps/provider for Copilot with gh_token writes GITHUB_TOKEN to keys.env."""
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    resp = client.post(
+        "/distro/setup/steps/provider",
+        json={
+            "provider": "github-copilot",
+            "api_key": "",
+            "model": "claude-sonnet-4.6",
+            "gh_token": "gho_phase2_token",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "ok"
+    assert data["provider"] == "github-copilot"
+
+    # Verify gh_token was written
+    from distro_plugin.providers import load_keys
+
+    keys = load_keys(settings)
+    assert keys.get("GITHUB_TOKEN") == "gho_phase2_token"

@@ -12,6 +12,7 @@ import logging
 import os
 import platform
 import shutil
+import subprocess
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, TypedDict
@@ -74,6 +75,8 @@ class ModulesData(BaseModel):
 class ProviderRequest(BaseModel):
     provider: str = ""
     api_key: str = ""
+    model: str = ""
+    gh_token: str = ""
 
 
 class InterfacesData(BaseModel):
@@ -643,13 +646,82 @@ def create_routes() -> APIRouter:
         result["tui_installed"] = shutil.which("amplifier-tui") is not None
         return result
 
+    @router.post("/setup/steps/provider/validate")
+    async def step_provider_validate(
+        request: Request, body: ProviderRequest
+    ) -> dict[str, Any]:
+        """Phase 1: Validate provider auth and return model list."""
+        provider_id = body.provider.strip()
+        if not provider_id or provider_id not in PROVIDERS:
+            raise HTTPException(status_code=400, detail="Unknown provider")
+
+        provider = PROVIDERS[provider_id]
+        models = list(provider.fallback_models)
+        default_model = provider.default_model
+
+        # Standard key-bearing providers just return model list
+        if provider.needs_key:
+            return {
+                "status": "needs_model",
+                "models": models,
+                "default_model": default_model,
+            }
+
+        # Keyless (GitHub Copilot): check env vars then gh CLI
+        copilot_env_vars = [
+            "COPILOT_AGENT_TOKEN",
+            "COPILOT_GITHUB_TOKEN",
+            "GH_TOKEN",
+            "GITHUB_TOKEN",
+        ]
+        for var in copilot_env_vars:
+            if os.environ.get(var):
+                return {
+                    "status": "needs_model",
+                    "models": models,
+                    "default_model": default_model,
+                    "token_source": "env",
+                    "gh_token": "",
+                }
+
+        # Fall back to gh auth token
+        try:
+            result = subprocess.run(
+                ["gh", "auth", "token"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return {
+                    "status": "needs_model",
+                    "models": models,
+                    "default_model": default_model,
+                    "token_source": "gh_cli",
+                    "gh_token": result.stdout.strip(),
+                }
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        return {
+            "status": "error",
+            "detail": (
+                "GitHub authentication not found. "
+                "Run gh auth login in a terminal and try again."
+            ),
+        }
+
     @router.post("/setup/steps/provider")
     async def step_provider(request: Request, body: ProviderRequest) -> dict[str, Any]:
-        """Register a provider with explicit key or sync from environment."""
+        """Phase 2: Register a provider with explicit key or sync from environment."""
         settings = _get_settings(request)
         if body.api_key.strip() or body.provider.strip():
             result = handle_provider_request(
-                settings, provider=body.provider, api_key=body.api_key
+                settings,
+                provider=body.provider,
+                api_key=body.api_key,
+                model=body.model,
+                gh_token=body.gh_token,
             )
             if result.get("status") == "error":
                 raise HTTPException(status_code=400, detail=result.get("detail", ""))
