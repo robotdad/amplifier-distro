@@ -1251,34 +1251,32 @@ function bindEvents() {
     });
   });
 
-  // "Use This Key" buttons (env var detected, no manual input needed)
+  // "Use This Key" buttons → Phase 1 validate (env var detected)
   document.querySelectorAll('[data-provider-use]').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const pid = btn.dataset.providerUse;
       state.savingProvider = pid;
       state.providerSaveResult = null;
+      state.modelPickerError = { ...state.modelPickerError, [pid]: null };
       render();
-      const res = await api('POST', '/setup/steps/provider', { provider: pid });
+      const res = await api('POST', '/setup/steps/provider/validate', {
+        provider: pid,
+      });
       state.savingProvider = null;
-      if (res && !res.error && res.verified) {
-        const prov = state.providers.find(p => p.id === (res.provider || pid));
-        if (prov) prov.configured = true;
-        let msg = res.provider_name + ' configured using existing key';
-        if (res.overlay_error) {
-          msg += ' (key saved, but overlay bundle not updated: ' + res.overlay_error + ')';
-        }
-        state.providerSaveResult = { id: res.provider || pid, ok: !res.overlay_error, message: msg };
-        detectCompletedSteps();
+      if (res && !res.error && res.status === 'needs_model') {
+        state.selectingModelFor = pid;
+        state.modelPickerData = { ...state.modelPickerData, [pid]: { models: res.models, default_model: res.default_model } };
+        state.modelSelection = { ...state.modelSelection, [pid]: res.default_model };
       } else {
-        const detail = (res && res.detail) || 'Failed to register provider with existing key.';
+        const detail = (res && res.detail) || 'Failed to load models.';
         state.providerSaveResult = { id: pid, ok: false, message: detail };
       }
       render();
     });
   });
 
-  // Provider save key buttons
+  // Provider save key buttons → Phase 1 validate
   document.querySelectorAll('[data-provider-save]').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
@@ -1286,30 +1284,134 @@ function bindEvents() {
       if (!state.providerKeyInput.trim()) return;
       state.savingProvider = pid;
       state.providerSaveResult = null;
+      state.modelPickerError = { ...state.modelPickerError, [pid]: null };
       render();
-      const res = await api('POST', '/setup/steps/provider', {
+      const res = await api('POST', '/setup/steps/provider/validate', {
         provider: pid,
         api_key: state.providerKeyInput,
       });
       state.savingProvider = null;
+      if (res && !res.error && res.status === 'needs_model') {
+        state.selectingModelFor = pid;
+        state.modelPickerData = { ...state.modelPickerData, [pid]: { models: res.models, default_model: res.default_model } };
+        state.modelSelection = { ...state.modelSelection, [pid]: res.default_model };
+        if (res.gh_token) {
+          state.pendingGhToken = { ...state.pendingGhToken, [pid]: res.gh_token };
+        }
+      } else {
+        const detail = (res && res.detail) || 'Validation failed. Check your key and try again.';
+        state.providerSaveResult = { id: pid, ok: false, message: detail };
+      }
+      render();
+    });
+  });
+
+  // Keyless activation buttons (GitHub Copilot) → Phase 1 validate
+  document.querySelectorAll('[data-provider-activate]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const pid = btn.dataset.providerActivate;
+      state.savingProvider = pid;
+      state.providerSaveResult = null;
+      state.modelPickerError = { ...state.modelPickerError, [pid]: null };
+      render();
+      const res = await api('POST', '/setup/steps/provider/validate', {
+        provider: pid,
+      });
+      state.savingProvider = null;
+      if (res && !res.error && res.status === 'needs_model') {
+        state.selectingModelFor = pid;
+        state.modelPickerData = { ...state.modelPickerData, [pid]: { models: res.models, default_model: res.default_model } };
+        state.modelSelection = { ...state.modelSelection, [pid]: res.default_model };
+        if (res.gh_token) {
+          state.pendingGhToken = { ...state.pendingGhToken, [pid]: res.gh_token };
+        }
+      } else if (res && res.status === 'error') {
+        state.modelPickerError = { ...state.modelPickerError, [pid]: res.detail };
+      } else {
+        state.modelPickerError = { ...state.modelPickerError, [pid]: 'Failed to check authentication.' };
+      }
+      render();
+    });
+  });
+
+  // Model picker confirm → Phase 2 register with chosen model
+  document.querySelectorAll('[data-provider-confirm]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const pid = btn.dataset.providerConfirm;
+      let selectedModel = state.modelSelection[pid] || '';
+      if (selectedModel === '__custom__') {
+        selectedModel = (state.customModelInput[pid] || '').trim();
+        if (!selectedModel) return;
+      }
+
+      state.savingProvider = pid;
+      state.providerSaveResult = null;
+      render();
+
+      const body = {
+        provider: pid,
+        api_key: state.providerKeyInput || '',
+        model: selectedModel,
+        gh_token: state.pendingGhToken[pid] || '',
+      };
+
+      const res = await api('POST', '/setup/steps/provider', body);
+      state.savingProvider = null;
+
       if (res && !res.error && res.verified) {
-        // Mark provider as configured in local state
         const prov = state.providers.find(p => p.id === (res.provider || pid));
         if (prov) prov.configured = true;
-        let msg = res.provider_name + ' configured';
+        let msg = res.provider_name + ' configured with model ' + selectedModel;
         if (res.overlay_error) {
           msg += ' (key saved, but overlay bundle not updated: ' + res.overlay_error + ')';
         }
         state.providerSaveResult = { id: res.provider || pid, ok: !res.overlay_error, message: msg };
         state.providerKeyInput = '';
-        // Keep card expanded if overlay failed so user sees the warning
-        if (!res.overlay_error) state.selectedProvider = null;
+        state.selectingModelFor = null;
+        delete state.pendingGhToken[pid];
+        delete state.modelPickerData[pid];
+        delete state.modelSelection[pid];
+        delete state.customModelInput[pid];
         detectCompletedSteps();
       } else {
-        const detail = (res && res.detail) || 'Failed to save key. Check your key and try again.';
+        const detail = (res && res.detail) || 'Failed to register provider.';
         state.providerSaveResult = { id: pid, ok: false, message: detail };
       }
       render();
+    });
+  });
+
+  // Model picker "Back" link → return to key input / activate state
+  document.querySelectorAll('[data-provider-back]').forEach(link => {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const pid = link.dataset.providerBack;
+      state.selectingModelFor = null;
+      delete state.modelPickerData[pid];
+      delete state.modelSelection[pid];
+      delete state.pendingGhToken[pid];
+      delete state.customModelInput[pid];
+      render();
+    });
+  });
+
+  // Model picker <select> change
+  document.querySelectorAll('[data-provider-model-select]').forEach(sel => {
+    sel.addEventListener('change', () => {
+      const pid = sel.dataset.providerModelSelect;
+      state.modelSelection = { ...state.modelSelection, [pid]: sel.value };
+      render();
+    });
+  });
+
+  // Custom model text input
+  document.querySelectorAll('[data-provider-custom-model]').forEach(input => {
+    input.addEventListener('input', () => {
+      const pid = input.dataset.providerCustomModel;
+      state.customModelInput = { ...state.customModelInput, [pid]: input.value };
     });
   });
 }
