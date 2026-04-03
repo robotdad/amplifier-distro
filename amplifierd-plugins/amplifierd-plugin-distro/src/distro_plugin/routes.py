@@ -38,6 +38,7 @@ from distro_plugin.overlay import (
 )
 from distro_plugin.providers import (
     PROVIDERS,
+    check_provider_status,
     get_provider_catalog,
     handle_provider_request,
     sync_providers,
@@ -808,8 +809,14 @@ def create_routes() -> APIRouter:
             # widget can skip its /auth/me probe when there is no session
             # infrastructure to query.
             auth_on = hasattr(request.app.state, "auth_verify_session")
-            tag = f"<script>window.__AUTH_ENABLED={str(auth_on).lower()}</script>"
-            content = content.replace("</head>", tag + "</head>", 1)
+            openai_status = check_provider_status(settings, "openai")
+            tags = (
+                f"<script>"
+                f"window.__AUTH_ENABLED={str(auth_on).lower()};"
+                f"window.__OPENAI_CONFIGURED={str(openai_status['configured']).lower()}"
+                f"</script>"
+            )
+            content = content.replace("</head>", tags + "</head>", 1)
             return HTMLResponse(content=content)
         except OSError:
             return HTMLResponse(
