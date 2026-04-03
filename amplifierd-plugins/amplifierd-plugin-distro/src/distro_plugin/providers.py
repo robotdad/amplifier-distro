@@ -64,7 +64,8 @@ class ProviderRegistrationResult:
 
     @property
     def ok(self) -> bool:
-        return self.key_saved and self.settings_updated and self.overlay_updated
+        """Registration succeeded — key + settings required, overlay optional for keyless."""
+        return self.key_saved and self.settings_updated
 
 
 # ---------------------------------------------------------------------------
@@ -467,14 +468,46 @@ def register_provider(
     add_provider_config(settings, provider_id, model=model)
     result.settings_updated = True
 
-    # 3. Add provider include to overlay bundle (recoverable)
-    try:
-        add_include(settings, provider.include)
-        result.overlay_updated = True
-    except OSError as exc:
-        result.overlay_error = str(exc)
+    # 3. Add provider include to overlay bundle (recoverable).
+    #    Skip for keyless providers — their bundle YAML declares the module,
+    #    and the settings.yaml entry (step 2) already loads it.  Adding both
+    #    causes a duplicate-module error in the kernel.
+    if provider.needs_key:
+        try:
+            add_include(settings, provider.include)
+            result.overlay_updated = True
+        except OSError as exc:
+            result.overlay_error = str(exc)
 
     return result
+
+
+def update_provider_model(
+    settings: DistroPluginSettings, provider_id: str, model: str
+) -> bool:
+    """Update the default_model for an already-configured provider in settings.yaml.
+
+    Returns ``True`` if the model was updated, ``False`` if the provider
+    is not found in the catalog or not configured in settings.
+    """
+    provider = PROVIDERS.get(provider_id)
+    if not provider:
+        return False
+
+    settings_path = _settings_path(settings)
+    if not settings_path.exists():
+        return False
+
+    data = yaml.safe_load(settings_path.read_text()) or {}
+    providers_list = data.get("config", {}).get("providers", [])
+
+    entry = _find_existing_entry(providers_list, provider)
+    if entry is None:
+        return False
+
+    entry.setdefault("config", {})["default_model"] = model
+    settings_path.write_text(yaml.dump(data, default_flow_style=False, sort_keys=False))
+    return True
 
 
 def check_provider_status(
@@ -518,7 +551,11 @@ def check_provider_status(
         "has_key": has_key,
         "in_settings": in_settings,
         "in_overlay": in_overlay,
-        "configured": has_key and in_settings and in_overlay,
+        "configured": (
+            has_key and in_settings and in_overlay
+            if provider.needs_key
+            else has_key and in_settings
+        ),
     }
 
 
@@ -543,6 +580,11 @@ def get_provider_catalog(
                 "in_settings": status["in_settings"],
                 "in_overlay": status["in_overlay"],
                 "configured": status["configured"],
+                "token_detected": (
+                    bool(any(os.environ.get(v) for v in p.auth_env_vars))
+                    if not p.needs_key and p.auth_env_vars
+                    else status["has_key"]
+                ),
             }
         )
     return providers

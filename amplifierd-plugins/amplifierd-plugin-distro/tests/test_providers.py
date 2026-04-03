@@ -605,14 +605,14 @@ def test_check_provider_status_github_copilot_has_key_without_env(
 
 
 def test_check_provider_status_github_copilot_configured(settings, monkeypatch):
-    """Fully registered GitHub Copilot shows configured=True."""
+    """Fully registered GitHub Copilot shows configured=True (no overlay needed)."""
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     register_provider(settings, "github-copilot", "")
     status = check_provider_status(settings, "github-copilot")
     assert status["has_key"] is True
     assert status["in_settings"] is True
-    assert status["in_overlay"] is True
-    assert status["configured"] is True
+    assert status["in_overlay"] is False  # keyless providers skip overlay
+    assert status["configured"] is True  # configured = has_key + in_settings for keyless
 
 
 def test_get_provider_catalog_includes_needs_key_and_fallback_models(settings):

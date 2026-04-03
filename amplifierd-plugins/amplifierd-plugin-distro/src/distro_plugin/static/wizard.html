@@ -371,6 +371,10 @@ input:focus, select:focus {
   background: var(--warning-soft);
   color: var(--warning);
 }
+.provider-badge.recommended {
+  background: var(--signal-soft);
+  color: var(--signal);
+}
 
 .provider-card p { font-size: 13px; color: var(--ink-slate); margin: 0 0 6px; }
 
@@ -395,28 +399,6 @@ input:focus, select:focus {
   font-size: 12px;
   color: var(--ink-slate);
 }
-.provider-model-row {
-  margin-top: 12px;
-  padding: 12px;
-  background: var(--bg-secondary, #1a1a2e);
-  border-radius: 8px;
-}
-.provider-model-select {
-  width: 100%;
-  padding: 8px;
-  border-radius: 4px;
-  border: 1px solid var(--border-color, #333);
-  background: var(--bg-primary, #0d0d1a);
-  color: var(--text-primary, #e0e0e0);
-  font-size: 0.9em;
-}
-.provider-error-row {
-  margin-top: 12px;
-  padding: 12px;
-  background: var(--bg-secondary, #1a1a2e);
-  border-radius: 8px;
-}
-
 .provider-key-row {
   display: flex;
   gap: 8px;
@@ -619,12 +601,6 @@ const state = {
   selectedProvider: null,     // which provider card is expanded for key entry
   providerKeyInput: '',       // current key input value
   savingProvider: null,       // provider ID currently being saved
-  selectingModelFor: null,    // provider ID currently in model-picker sub-step
-  modelPickerData: {},        // {[pid]: {models: [], default_model: ""}} from Phase 1
-  modelSelection: {},         // {[pid]: selectedModel} user's current choice
-  pendingGhToken: {},         // {[pid]: token} held between Phase 1 and Phase 2
-  modelPickerError: {},       // {[pid]: message} for Copilot auth failure state
-  customModelInput: {},       // {[pid]: string} text input when "Other" is selected
   // Step 4 - Modules
   modules: [],
   selectedModules: new Set(),
@@ -679,6 +655,19 @@ async function autoDetect() {
   const provData = await api('GET', '/providers');
   if (provData && !provData.error && provData.providers) {
     state.providers = provData.providers;
+  }
+  // Auto-activate GitHub Copilot if a token/auth is available and not already configured
+  const copilotProv = state.providers.find(p => p.id === 'github-copilot');
+  const copilotTokenAvailable = copilotProv && (copilotProv.token_detected || (state.detected && state.detected.github && state.detected.github.authenticated));
+  if (copilotTokenAvailable && !copilotProv.configured) {
+    const res = await api('POST', '/setup/steps/provider', { provider: 'github-copilot' });
+    if (res && !res.error && res.status === 'ok') {
+      copilotProv.configured = true;
+      copilotProv.in_settings = true;
+      copilotProv.in_overlay = true;
+    }
+  } else if (copilotTokenAvailable) {
+    state.selectedProvider = 'github-copilot';
   }
   // Load available modules and track currently enabled ones
   const mods = await api('GET', '/modules');
@@ -962,6 +951,11 @@ function renderInterfaces() {
 /* ------------------------------------------------------------------ */
 function renderProvider() {
   const providers = state.providers || [];
+  const sortedProviders = [...providers].sort((a, b) => {
+    if (a.id === 'github-copilot') return -1;
+    if (b.id === 'github-copilot') return 1;
+    return 0;
+  });
   const configuredNames = providers.filter(p => p.configured).map(p => p.name);
   const detectedNames = providers.filter(p => p.has_key && !p.configured).map(p => p.name);
 
@@ -982,8 +976,9 @@ function renderProvider() {
     <div class="card-body">
       ${summaryHtml}
       <div class="provider-grid">
-        ${providers.map(p => {
+        ${sortedProviders.map(p => {
           const isSelected = state.selectedProvider === p.id;
+          const isRecommended = p.id === 'github-copilot' && (p.token_detected || (state.detected && state.detected.github && state.detected.github.authenticated));
           const cls = [
             'provider-card',
             p.configured ? 'configured' : p.has_key ? 'detected' : '',
@@ -1000,23 +995,24 @@ function renderProvider() {
               <div class="provider-card-header">
                 <h3>${esc(p.name)}</h3>
                 ${p.configured ? '<span class="provider-badge configured">Configured</span>'
+                  : isRecommended ? '<span class="provider-badge recommended">Recommended</span>'
                   : (p.has_key && !p.configured && p.needs_key) ? '<span class="provider-badge detected">Key Detected</span>' : ''}
               </div>
               <p>${esc(p.description)}</p>
               ${!p.needs_key ? `
-                ${!p.configured && !state.selectingModelFor ? `
+                ${!p.configured ? `
                   <div class="provider-env-row">
                     <span class="env-hint">No API key required &mdash; uses GitHub authentication</span>
                     <button class="btn-sm btn-secondary"
                             data-provider-activate="${esc(p.id)}"
                             ${state.savingProvider === p.id ? 'disabled' : ''}>
-                      ${state.savingProvider === p.id ? 'Checking...' : 'Activate'}
+                      ${state.savingProvider === p.id ? 'Activating...' : 'Activate'}
                     </button>
                   </div>
                 ` : ''}
               ` : `
                 ${!p.configured && !p.has_key ? `<a class="provider-link" href="${esc(p.console_url)}" target="_blank" rel="noopener">Get an API key</a>` : ''}
-                ${p.has_key && !p.configured && state.selectingModelFor !== p.id ? `
+                ${p.has_key && !p.configured ? `
                   <div class="provider-env-row">
                     <span class="env-hint">Key found in environment</span>
                     <button class="btn-sm btn-secondary"
@@ -1026,7 +1022,7 @@ function renderProvider() {
                     </button>
                   </div>
                 ` : ''}
-                ${isSelected && state.selectingModelFor !== p.id ? `
+                ${isSelected ? `
                   <div class="provider-key-row">
                     <input type="password" class="provider-key-input"
                            data-provider-key="${esc(p.id)}"
@@ -1035,50 +1031,12 @@ function renderProvider() {
                     <button class="btn-sm btn-secondary provider-save-btn"
                             data-provider-save="${esc(p.id)}"
                             ${state.savingProvider === p.id ? 'disabled' : ''}>
-                      ${state.savingProvider === p.id ? 'Validating...' : p.configured ? 'Update' : 'Add Key'}
+                      ${state.savingProvider === p.id ? 'Saving...' : p.configured ? 'Update' : 'Add Key'}
                     </button>
                   </div>
                 ` : ''}
               `}
               ${saveResult ? `<div class="provider-save-msg ${saveResult.ok ? 'ok' : 'fail'}">${esc(saveResult.message)}</div>` : ''}
-              ${state.modelPickerError[p.id] ? `
-                <div class="provider-error-row">
-                  <p class="provider-save-msg fail">${esc(state.modelPickerError[p.id])}</p>
-                  <code style="display:block; margin:8px 0; padding:8px; background:var(--bg-secondary, #1a1a2e); border-radius:4px;">gh auth login</code>
-                  <button class="btn-sm btn-secondary"
-                          data-provider-activate="${esc(p.id)}"
-                          ${state.savingProvider === p.id ? 'disabled' : ''}>
-                    ${state.savingProvider === p.id ? 'Checking...' : 'Try Again'}
-                  </button>
-                </div>
-              ` : ''}
-              ${state.selectingModelFor === p.id ? `
-                <div class="provider-model-row">
-                  <label style="font-size:0.9em; margin-bottom:4px; display:block;">Select a model:</label>
-                  <select class="provider-model-select" data-provider-model-select="${esc(p.id)}">
-                    ${(state.modelPickerData[p.id]?.models || []).map(m =>
-                      '<option value="' + esc(m) + '"' +
-                      (state.modelSelection[p.id] === m ? ' selected' : '') +
-                      '>' + esc(m) + '</option>'
-                    ).join('')}
-                    <option value="__custom__"${state.modelSelection[p.id] === '__custom__' ? ' selected' : ''}>Other (enter manually)</option>
-                  </select>
-                  ${state.modelSelection[p.id] === '__custom__' ? `
-                    <input type="text" class="provider-key-input"
-                           data-provider-custom-model="${esc(p.id)}"
-                           placeholder="Enter model name"
-                           value="${esc(state.customModelInput[p.id] || '')}"
-                           style="margin-top:6px;">
-                  ` : ''}
-                  <div style="display:flex; gap:8px; margin-top:8px; align-items:center;">
-                    <button class="btn-sm btn-secondary"
-                            data-provider-confirm="${esc(p.id)}"
-                            ${state.savingProvider === p.id ? 'disabled' : ''}>
-                      ${state.savingProvider === p.id ? 'Saving...' : 'Confirm'}
-                    </button>
-                  </div>
-                </div>
-              ` : ''}
             </div>`;
         }).join('')}
       </div>
@@ -1231,8 +1189,6 @@ function bindEvents() {
       if (e.target.tagName === 'A') return;
       if (e.target.closest('.provider-key-row')) return;
       if (e.target.closest('.provider-env-row')) return;
-      if (e.target.closest('.provider-model-row')) return;
-      if (e.target.closest('.provider-error-row')) return;
       const pid = card.dataset.provider;
       if (state.selectedProvider === pid) {
         state.selectedProvider = null;
@@ -1252,129 +1208,26 @@ function bindEvents() {
     });
   });
 
-  // "Use This Key" buttons → Phase 1 validate (env var detected)
+  // "Use This Key" buttons → register directly using provider's default model
   document.querySelectorAll('[data-provider-use]').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const pid = btn.dataset.providerUse;
       state.savingProvider = pid;
       state.providerSaveResult = null;
-      state.modelPickerError = { ...state.modelPickerError, [pid]: null };
       render();
-      const res = await api('POST', '/setup/steps/provider/validate', {
+      const provider = state.providers.find(p => p.id === pid);
+      const res = await api('POST', '/setup/steps/provider', {
         provider: pid,
+        model: provider ? provider.default_model : '',
       });
       state.savingProvider = null;
-      if (res && !res.error && res.status === 'needs_model') {
-        state.selectingModelFor = pid;
-        state.modelPickerData = { ...state.modelPickerData, [pid]: { models: res.models, default_model: res.default_model } };
-        state.modelSelection = { ...state.modelSelection, [pid]: res.default_model };
-      } else {
-        const detail = (res && res.detail) || 'Failed to load models.';
-        state.providerSaveResult = { id: pid, ok: false, message: detail };
-      }
-      render();
-    });
-  });
-
-  // Provider save key buttons → Phase 1 validate
-  document.querySelectorAll('[data-provider-save]').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const pid = btn.dataset.providerSave;
-      if (!state.providerKeyInput.trim()) return;
-      state.savingProvider = pid;
-      state.providerSaveResult = null;
-      state.modelPickerError = { ...state.modelPickerError, [pid]: null };
-      render();
-      const res = await api('POST', '/setup/steps/provider/validate', {
-        provider: pid,
-        api_key: state.providerKeyInput,
-      });
-      state.savingProvider = null;
-      if (res && !res.error && res.status === 'needs_model') {
-        state.selectingModelFor = pid;
-        state.modelPickerData = { ...state.modelPickerData, [pid]: { models: res.models, default_model: res.default_model } };
-        state.modelSelection = { ...state.modelSelection, [pid]: res.default_model };
-        if (res.gh_token) {
-          state.pendingGhToken = { ...state.pendingGhToken, [pid]: res.gh_token };
-        }
-      } else {
-        const detail = (res && res.detail) || 'Validation failed. Check your key and try again.';
-        state.providerSaveResult = { id: pid, ok: false, message: detail };
-      }
-      render();
-    });
-  });
-
-  // Keyless activation buttons (GitHub Copilot) → Phase 1 validate
-  document.querySelectorAll('[data-provider-activate]').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const pid = btn.dataset.providerActivate;
-      state.savingProvider = pid;
-      state.providerSaveResult = null;
-      state.modelPickerError = { ...state.modelPickerError, [pid]: null };
-      render();
-      const res = await api('POST', '/setup/steps/provider/validate', {
-        provider: pid,
-      });
-      state.savingProvider = null;
-      if (res && !res.error && res.status === 'needs_model') {
-        state.selectingModelFor = pid;
-        state.modelPickerData = { ...state.modelPickerData, [pid]: { models: res.models, default_model: res.default_model } };
-        state.modelSelection = { ...state.modelSelection, [pid]: res.default_model };
-        if (res.gh_token) {
-          state.pendingGhToken = { ...state.pendingGhToken, [pid]: res.gh_token };
-        }
-      } else if (res && res.status === 'error') {
-        state.modelPickerError = { ...state.modelPickerError, [pid]: res.detail };
-      } else {
-        state.modelPickerError = { ...state.modelPickerError, [pid]: 'Failed to check authentication.' };
-      }
-      render();
-    });
-  });
-
-  // Model picker confirm → Phase 2 register with chosen model
-  document.querySelectorAll('[data-provider-confirm]').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const pid = btn.dataset.providerConfirm;
-      let selectedModel = state.modelSelection[pid] || '';
-      if (selectedModel === '__custom__') {
-        selectedModel = (state.customModelInput[pid] || '').trim();
-        if (!selectedModel) return;
-      }
-
-      state.savingProvider = pid;
-      state.providerSaveResult = null;
-      render();
-
-      const body = {
-        provider: pid,
-        api_key: state.providerKeyInput || '',
-        model: selectedModel,
-        gh_token: state.pendingGhToken[pid] || '',
-      };
-
-      const res = await api('POST', '/setup/steps/provider', body);
-      state.savingProvider = null;
-
       if (res && !res.error && res.verified) {
         const prov = state.providers.find(p => p.id === (res.provider || pid));
         if (prov) prov.configured = true;
-        let msg = res.provider_name + ' configured with model ' + selectedModel;
-        if (res.overlay_error) {
-          msg += ' (key saved, but overlay bundle not updated: ' + res.overlay_error + ')';
-        }
+        let msg = (res.provider_name || pid) + ' configured.';
+        if (res.overlay_error) msg += ' (key saved, but overlay bundle not updated: ' + res.overlay_error + ')';
         state.providerSaveResult = { id: res.provider || pid, ok: !res.overlay_error, message: msg };
-        state.providerKeyInput = '';
-        state.selectingModelFor = null;
-        delete state.pendingGhToken[pid];
-        delete state.modelPickerData[pid];
-        delete state.modelSelection[pid];
-        delete state.customModelInput[pid];
         detectCompletedSteps();
       } else {
         const detail = (res && res.detail) || 'Failed to register provider.';
@@ -1384,37 +1237,68 @@ function bindEvents() {
     });
   });
 
-  // Model picker "Back" link → return to key input / activate state
-  document.querySelectorAll('[data-provider-back]').forEach(link => {
-    link.addEventListener('click', (e) => {
-      e.preventDefault();
+  // Provider save key buttons → register directly using provider's default model
+  document.querySelectorAll('[data-provider-save]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
       e.stopPropagation();
-      const pid = link.dataset.providerBack;
-      state.selectingModelFor = null;
-      delete state.modelPickerData[pid];
-      delete state.modelSelection[pid];
-      delete state.pendingGhToken[pid];
-      delete state.customModelInput[pid];
+      const pid = btn.dataset.providerSave;
+      if (!state.providerKeyInput.trim()) return;
+      state.savingProvider = pid;
+      state.providerSaveResult = null;
+      render();
+      const provider = state.providers.find(p => p.id === pid);
+      const res = await api('POST', '/setup/steps/provider', {
+        provider: pid,
+        api_key: state.providerKeyInput,
+        model: provider ? provider.default_model : '',
+      });
+      state.savingProvider = null;
+      if (res && !res.error && res.verified) {
+        const prov = state.providers.find(p => p.id === (res.provider || pid));
+        if (prov) prov.configured = true;
+        let msg = (res.provider_name || pid) + ' configured.';
+        if (res.overlay_error) msg += ' (key saved, but overlay bundle not updated: ' + res.overlay_error + ')';
+        state.providerSaveResult = { id: res.provider || pid, ok: !res.overlay_error, message: msg };
+        state.providerKeyInput = '';
+        state.selectedProvider = null;
+        detectCompletedSteps();
+      } else {
+        const detail = (res && res.detail) || 'Failed. Check your key and try again.';
+        state.providerSaveResult = { id: pid, ok: false, message: detail };
+      }
       render();
     });
   });
 
-  // Model picker <select> change
-  document.querySelectorAll('[data-provider-model-select]').forEach(sel => {
-    sel.addEventListener('change', () => {
-      const pid = sel.dataset.providerModelSelect;
-      state.modelSelection = { ...state.modelSelection, [pid]: sel.value };
+  // Keyless activation buttons (GitHub Copilot) → register directly using provider's default model
+  document.querySelectorAll('[data-provider-activate]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const pid = btn.dataset.providerActivate;
+      state.savingProvider = pid;
+      state.providerSaveResult = null;
+      render();
+      const provider = state.providers.find(p => p.id === pid);
+      const res = await api('POST', '/setup/steps/provider', {
+        provider: pid,
+        model: provider ? provider.default_model : '',
+      });
+      state.savingProvider = null;
+      if (res && !res.error && res.verified) {
+        const prov = state.providers.find(p => p.id === (res.provider || pid));
+        if (prov) prov.configured = true;
+        let msg = (res.provider_name || pid) + ' configured.';
+        if (res.overlay_error) msg += ' (key saved, but overlay bundle not updated: ' + res.overlay_error + ')';
+        state.providerSaveResult = { id: res.provider || pid, ok: !res.overlay_error, message: msg };
+        detectCompletedSteps();
+      } else {
+        const detail = (res && res.detail) || 'Failed to activate provider.';
+        state.providerSaveResult = { id: pid, ok: false, message: detail };
+      }
       render();
     });
   });
 
-  // Custom model text input
-  document.querySelectorAll('[data-provider-custom-model]').forEach(input => {
-    input.addEventListener('input', () => {
-      const pid = input.dataset.providerCustomModel;
-      state.customModelInput = { ...state.customModelInput, [pid]: input.value };
-    });
-  });
 }
 
 /* ================================================================== */
