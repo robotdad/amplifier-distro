@@ -30,9 +30,9 @@ from distro_plugin.providers import (
 
 
 def test_catalog_has_entries():
-    """PROVIDERS catalog contains all 6 expected providers."""
-    assert len(PROVIDERS) == 6
-    for pid in ("anthropic", "openai", "google", "xai", "ollama", "azure"):
+    """PROVIDERS catalog contains all 5 expected providers."""
+    assert len(PROVIDERS) == 5
+    for pid in ("anthropic", "openai", "google", "ollama", "azure"):
         assert pid in PROVIDERS
 
 
@@ -49,11 +49,10 @@ def test_provider_has_required_fields():
 
 
 def test_detect_provider_known_prefixes():
-    """detect_provider identifies anthropic, openai, google, and xai by key prefix."""
+    """detect_provider identifies anthropic, openai, and google by key prefix."""
     assert detect_provider("sk-ant-abc123") == "anthropic"
     assert detect_provider("sk-proj-abc123") == "openai"
     assert detect_provider("AIzaSyAbc123") == "google"
-    assert detect_provider("xai-abc123") == "xai"
 
 
 def test_detect_provider_unknown_returns_none():
@@ -208,11 +207,11 @@ def test_register_provider_full_orchestration(settings, monkeypatch):
 
 
 def test_get_provider_catalog_returns_all_providers_with_status(settings):
-    """get_provider_catalog returns entries for all 6 providers with status."""
+    """get_provider_catalog returns entries for all 5 providers with status."""
     catalog = get_provider_catalog(settings)
-    assert len(catalog) == 6
+    assert len(catalog) == 5
     ids = {entry["id"] for entry in catalog}
-    assert ids == {"anthropic", "openai", "google", "xai", "ollama", "azure"}
+    assert ids == {"anthropic", "openai", "google", "ollama", "azure"}
     for entry in catalog:
         assert "has_key" in entry
         assert "in_settings" in entry
@@ -272,58 +271,12 @@ def test_add_provider_config_writes_id_field(settings):
     assert entry["id"] == "anthropic"
 
 
-def test_add_provider_config_writes_base_url_when_present(settings):
-    """add_provider_config includes base_url in config for providers that need it (e.g. xAI)."""
-    add_provider_config(settings, "xai")
-    data = yaml.safe_load(_settings_path(settings).read_text())
-    entry = data["config"]["providers"][0]
-    assert entry["config"]["base_url"] == "https://api.x.ai/v1"
-
-
-def test_add_provider_config_omits_base_url_when_absent(settings):
-    """add_provider_config does not write base_url for providers that don't need it."""
+def test_add_provider_config_does_not_write_base_url(settings):
+    """add_provider_config never writes a base_url field."""
     add_provider_config(settings, "anthropic")
     data = yaml.safe_load(_settings_path(settings).read_text())
     entry = data["config"]["providers"][0]
     assert "base_url" not in entry["config"]
-
-
-def test_add_provider_config_xai_and_openai_are_separate(settings):
-    """xAI and OpenAI get separate entries despite sharing module_id."""
-    add_provider_config(settings, "openai")
-    add_provider_config(settings, "xai")
-    data = yaml.safe_load(_settings_path(settings).read_text())
-    providers_list = data["config"]["providers"]
-    assert len(providers_list) == 2
-    ids = {e["id"] for e in providers_list}
-    assert ids == {"openai", "xai"}
-    modules = {e["module"] for e in providers_list}
-    assert modules == {"provider-openai"}  # both share the module
-
-
-def test_add_provider_config_xai_has_correct_config(settings):
-    """xAI entry has base_url and correct env var placeholder."""
-    add_provider_config(settings, "xai")
-    data = yaml.safe_load(_settings_path(settings).read_text())
-    entry = data["config"]["providers"][0]
-    assert entry["id"] == "xai"
-    assert entry["module"] == "provider-openai"
-    assert entry["config"]["base_url"] == "https://api.x.ai/v1"
-    assert entry["config"]["api_key"] == "${XAI_API_KEY}"
-    assert entry["config"]["default_model"] == "grok-3"
-
-
-def test_check_provider_status_distinguishes_xai_from_openai(settings, monkeypatch):
-    """check_provider_status correctly distinguishes xAI from OpenAI."""
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("XAI_API_KEY", raising=False)
-    # Register only OpenAI
-    register_provider(settings, "openai", "sk-proj-test")
-    # OpenAI should be configured, xAI should not be in_settings
-    openai_status = check_provider_status(settings, "openai")
-    xai_status = check_provider_status(settings, "xai")
-    assert openai_status["in_settings"] is True
-    assert xai_status["in_settings"] is False
 
 
 def test_sync_providers_registers_incomplete(settings, monkeypatch):
@@ -457,63 +410,6 @@ class TestLegacySettingsCompat:
         )
         status = check_provider_status(settings, "anthropic")
         assert status["in_settings"] is True
-
-    def test_legacy_openai_not_confused_with_xai(self, settings):
-        """Legacy OpenAI entry (no base_url) should NOT match the xAI provider."""
-        settings_path = settings.amplifier_home / "settings.yaml"
-        settings_path.parent.mkdir(parents=True, exist_ok=True)
-        settings_path.write_text(
-            yaml.dump(
-                {
-                    "config": {
-                        "providers": [
-                            {
-                                "module": "provider-openai",
-                                "config": {
-                                    "priority": 1,
-                                    "api_key": "${OPENAI_API_KEY}",
-                                },
-                            }
-                        ]
-                    }
-                }
-            )
-        )
-        # OpenAI should match (no base_url on either side)
-        status_openai = check_provider_status(settings, "openai")
-        assert status_openai["in_settings"] is True
-        # xAI should NOT match (it requires a base_url)
-        status_xai = check_provider_status(settings, "xai")
-        assert status_xai["in_settings"] is False
-
-    def test_legacy_xai_with_base_url_matches_correctly(self, settings):
-        """Legacy xAI entry (has base_url, no id) should match xai, not openai."""
-        settings_path = settings.amplifier_home / "settings.yaml"
-        settings_path.parent.mkdir(parents=True, exist_ok=True)
-        settings_path.write_text(
-            yaml.dump(
-                {
-                    "config": {
-                        "providers": [
-                            {
-                                "module": "provider-openai",
-                                "config": {
-                                    "priority": 1,
-                                    "api_key": "${XAI_API_KEY}",
-                                    "base_url": "https://api.x.ai/v1",
-                                },
-                            }
-                        ]
-                    }
-                }
-            )
-        )
-        # xAI should match (base_url agrees)
-        status_xai = check_provider_status(settings, "xai")
-        assert status_xai["in_settings"] is True
-        # OpenAI should NOT match (no base_url on provider side, but entry has one)
-        status_openai = check_provider_status(settings, "openai")
-        assert status_openai["in_settings"] is False
 
     def test_sync_providers_does_not_duplicate_legacy(self, settings, monkeypatch):
         """sync_providers should not re-register providers present in legacy format."""
