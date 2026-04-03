@@ -68,7 +68,12 @@ The onboarding experience guides setup. Capabilities can be enabled or changed a
 
 ```bash
 git clone https://github.com/microsoft/amplifier-distro && cd amplifier-distro
-cd distro-server
+
+# Run directly from the repo (recommended for development)
+uv run amp-distro --reload
+
+# Or install as an editable tool
+cd distro-service
 uv tool install -e .
 ```
 

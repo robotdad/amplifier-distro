@@ -656,9 +656,17 @@ async function autoDetect() {
   if (provData && !provData.error && provData.providers) {
     state.providers = provData.providers;
   }
-  // Auto-select GitHub Copilot if a token/auth is already available
+  // Auto-activate GitHub Copilot if a token/auth is available and not already configured
   const copilotProv = state.providers.find(p => p.id === 'github-copilot');
-  if (copilotProv && (copilotProv.token_detected || (state.detected && state.detected.github && state.detected.github.authenticated))) {
+  const copilotTokenAvailable = copilotProv && (copilotProv.token_detected || (state.detected && state.detected.github && state.detected.github.authenticated));
+  if (copilotTokenAvailable && !copilotProv.configured) {
+    const res = await api('POST', '/setup/steps/provider', { provider: 'github-copilot' });
+    if (res && !res.error && res.status === 'ok') {
+      copilotProv.configured = true;
+      copilotProv.in_settings = true;
+      copilotProv.in_overlay = true;
+    }
+  } else if (copilotTokenAvailable) {
     state.selectedProvider = 'github-copilot';
   }
   // Load available modules and track currently enabled ones
