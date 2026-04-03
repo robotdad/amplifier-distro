@@ -979,33 +979,46 @@ function renderProvider() {
               <div class="provider-card-header">
                 <h3>${esc(p.name)}</h3>
                 ${p.configured ? '<span class="provider-badge configured">Configured</span>'
-                  : p.has_key ? '<span class="provider-badge detected">Key Detected</span>' : ''}
+                  : (p.has_key && !p.configured && p.needs_key) ? '<span class="provider-badge detected">Key Detected</span>' : ''}
               </div>
               <p>${esc(p.description)}</p>
-              ${!p.configured && !p.has_key ? `<a class="provider-link" href="${esc(p.console_url)}" target="_blank" rel="noopener">Get an API key</a>` : ''}
-              ${p.has_key && !p.configured ? `
-                <div class="provider-env-row">
-                  <span class="env-hint">Key found in environment</span>
-                  <button class="btn-sm btn-secondary"
-                          data-provider-use="${esc(p.id)}"
-                          ${state.savingProvider === p.id ? 'disabled' : ''}>
-                    ${state.savingProvider === p.id ? 'Setting up...' : 'Use This Key'}
-                  </button>
-                </div>
-              ` : ''}
-              ${isSelected ? `
-                <div class="provider-key-row">
-                  <input type="password" class="provider-key-input"
-                         data-provider-key="${esc(p.id)}"
-                         placeholder="${esc(placeholder)}"
-                         value="${esc(state.providerKeyInput)}">
-                  <button class="btn-sm btn-secondary provider-save-btn"
-                          data-provider-save="${esc(p.id)}"
-                          ${state.savingProvider === p.id ? 'disabled' : ''}>
-                    ${state.savingProvider === p.id ? 'Saving...' : p.configured ? 'Update' : 'Add Key'}
-                  </button>
-                </div>
-              ` : ''}
+              ${!p.needs_key ? `
+                ${!p.configured && !state.selectingModelFor ? `
+                  <div class="provider-env-row">
+                    <span class="env-hint">No API key required &mdash; uses GitHub authentication</span>
+                    <button class="btn-sm btn-secondary"
+                            data-provider-activate="${esc(p.id)}"
+                            ${state.savingProvider === p.id ? 'disabled' : ''}>
+                      ${state.savingProvider === p.id ? 'Checking...' : 'Activate'}
+                    </button>
+                  </div>
+                ` : ''}
+              ` : `
+                ${!p.configured && !p.has_key ? `<a class="provider-link" href="${esc(p.console_url)}" target="_blank" rel="noopener">Get an API key</a>` : ''}
+                ${p.has_key && !p.configured && state.selectingModelFor !== p.id ? `
+                  <div class="provider-env-row">
+                    <span class="env-hint">Key found in environment</span>
+                    <button class="btn-sm btn-secondary"
+                            data-provider-use="${esc(p.id)}"
+                            ${state.savingProvider === p.id ? 'disabled' : ''}>
+                      ${state.savingProvider === p.id ? 'Setting up...' : 'Use This Key'}
+                    </button>
+                  </div>
+                ` : ''}
+                ${isSelected && state.selectingModelFor !== p.id ? `
+                  <div class="provider-key-row">
+                    <input type="password" class="provider-key-input"
+                           data-provider-key="${esc(p.id)}"
+                           placeholder="${esc(placeholder)}"
+                           value="${esc(state.providerKeyInput)}">
+                    <button class="btn-sm btn-secondary provider-save-btn"
+                            data-provider-save="${esc(p.id)}"
+                            ${state.savingProvider === p.id ? 'disabled' : ''}>
+                      ${state.savingProvider === p.id ? 'Validating...' : p.configured ? 'Update' : 'Add Key'}
+                    </button>
+                  </div>
+                ` : ''}
+              `}
               ${saveResult ? `<div class="provider-save-msg ${saveResult.ok ? 'ok' : 'fail'}">${esc(saveResult.message)}</div>` : ''}
             </div>`;
         }).join('')}
