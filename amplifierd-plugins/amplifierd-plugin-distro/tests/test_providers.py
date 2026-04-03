@@ -500,3 +500,56 @@ class TestLegacySettingsCompat:
             if e.get("module") == "provider-anthropic" or e.get("id") == "anthropic"
         ]
         assert len(anthropic_entries) == 1
+
+
+def test_add_provider_config_uses_model_override(settings):
+    """add_provider_config with model param writes that model instead of catalog default."""
+    add_provider_config(settings, "anthropic", model="claude-opus-4-6")
+    data = yaml.safe_load(_settings_path(settings).read_text())
+    entry = data["config"]["providers"][0]
+    assert entry["config"]["default_model"] == "claude-opus-4-6"
+
+
+def test_add_provider_config_omits_api_key_for_keyless(settings):
+    """settings.yaml entry for GitHub Copilot has no api_key field."""
+    add_provider_config(settings, "github-copilot")
+    data = yaml.safe_load(_settings_path(settings).read_text())
+    entry = next(e for e in data["config"]["providers"] if e["id"] == "github-copilot")
+    assert "api_key" not in entry["config"]
+    assert entry["config"]["default_model"] == "claude-sonnet-4.6"
+
+
+def test_register_with_model_override(settings, monkeypatch):
+    """register_provider with model param writes that model to settings.yaml."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    result = register_provider(
+        settings, "anthropic", "sk-ant-test", model="claude-opus-4-6"
+    )
+    assert result.ok is True
+    data = yaml.safe_load(_settings_path(settings).read_text())
+    entry = next(e for e in data["config"]["providers"] if e["id"] == "anthropic")
+    assert entry["config"]["default_model"] == "claude-opus-4-6"
+
+
+def test_register_github_copilot_skips_keys_env(settings, monkeypatch):
+    """register_provider for a keyless provider skips keys.env entirely."""
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    result = register_provider(settings, "github-copilot", "")
+    assert result.key_saved is True  # "no key needed" still counts as ok
+    assert result.settings_updated is True
+    keys_path = _keys_path(settings)
+    assert not keys_path.exists() or "GITHUB_TOKEN" not in keys_path.read_text()
+
+
+def test_register_github_copilot_writes_gh_token_when_provided(settings, monkeypatch):
+    """When gh_token is provided, register_provider writes GITHUB_TOKEN to keys.env."""
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    result = register_provider(
+        settings, "github-copilot", "", gh_token="gho_extracted_token_123"
+    )
+    assert result.ok is True
+    keys_path = _keys_path(settings)
+    assert keys_path.exists()
+    content = keys_path.read_text()
+    assert "GITHUB_TOKEN" in content
+    assert "gho_extracted_token_123" in content

@@ -44,7 +44,9 @@ class Provider:
     source_url: str = ""
     console_url: str = ""
     fallback_models: tuple[str, ...] = ()
-    auth_env_vars: tuple[str, ...] = ()  # checked in priority order; non-empty only for keyless providers
+    auth_env_vars: tuple[
+        str, ...
+    ] = ()  # checked in priority order; non-empty only for keyless providers
     needs_key: bool = True
 
 
@@ -304,12 +306,19 @@ def persist_api_key(
        isolation (e.g. tests) should use ``monkeypatch`` or equivalent.
     """
     provider = PROVIDERS[provider_id]
+    _write_raw_key(settings, provider.env_var, api_key)
+
+
+def _write_raw_key(settings: DistroPluginSettings, key_name: str, value: str) -> None:
+    """Write an arbitrary key=value to keys.env and set in os.environ.
+
+    Unlike :func:`persist_api_key`, this does not require a provider ID —
+    it writes a raw key name directly.  Used for ``GITHUB_TOKEN`` extracted
+    from ``gh auth token``.
+    """
     keys_path = _keys_path(settings)
     keys_path.parent.mkdir(parents=True, exist_ok=True)
 
-    key_name = provider.env_var
-
-    # Read existing lines, update or append
     lines: list[str] = []
     found = False
     if keys_path.exists():
@@ -318,19 +327,19 @@ def persist_api_key(
             if stripped and not stripped.startswith("#") and "=" in stripped:
                 existing_key, _, _ = stripped.partition("=")
                 if existing_key.strip() == key_name:
-                    lines.append(f'{key_name}="{api_key}"')
+                    lines.append(f'{key_name}="{value}"')
                     found = True
                     continue
             lines.append(raw_line)
 
     if not found:
-        lines.append(f'{key_name}="{api_key}"')
+        lines.append(f'{key_name}="{value}"')
 
     keys_path.write_text("\n".join(lines) + "\n")
     with contextlib.suppress(OSError):
         keys_path.chmod(0o600)
 
-    os.environ[key_name] = api_key
+    os.environ[key_name] = value
 
 
 # ---------------------------------------------------------------------------
@@ -338,12 +347,20 @@ def persist_api_key(
 # ---------------------------------------------------------------------------
 
 
-def add_provider_config(settings: DistroPluginSettings, provider_id: str) -> None:
+def add_provider_config(
+    settings: DistroPluginSettings, provider_id: str, *, model: str = ""
+) -> None:
     """Add a provider to config.providers[] in settings.yaml (additive).
 
     Skips if the provider module is already listed.  Stores API keys
     as ``${VAR}`` placeholders (never raw values).  Demotes any existing
     ``priority: 1`` provider to ``priority: 10`` before adding.
+
+    Args:
+        settings: Plugin settings with path configuration.
+        provider_id: Canonical provider ID (e.g. ``"anthropic"``).
+        model: Override the catalog default model.  When empty the
+            provider's ``default_model`` is used.
     """
     provider = PROVIDERS[provider_id]
     settings_path = _settings_path(settings)
@@ -371,11 +388,13 @@ def add_provider_config(settings: DistroPluginSettings, provider_id: str) -> Non
             )
         return
 
+    effective_model = model if model else provider.default_model
     config_block: dict[str, Any] = {
-        "default_model": provider.default_model,
-        "api_key": f"${{{provider.env_var}}}",
+        "default_model": effective_model,
         "priority": _PRIMARY_PRIORITY,
     }
+    if provider.needs_key:
+        config_block["api_key"] = f"${{{provider.env_var}}}"
 
     new_entry: dict[str, Any] = {
         "id": provider.id,
@@ -402,12 +421,27 @@ def add_provider_config(settings: DistroPluginSettings, provider_id: str) -> Non
 
 
 def register_provider(
-    settings: DistroPluginSettings, provider_id: str, api_key: str
+    settings: DistroPluginSettings,
+    provider_id: str,
+    api_key: str,
+    *,
+    model: str = "",
+    gh_token: str = "",
 ) -> ProviderRegistrationResult:
     """Register a provider: persist API key, update settings, update overlay.
 
     This is the single entry point for adding a provider to the distro.
     Module installation is handled separately by the daemon.
+
+    Args:
+        settings: Plugin settings with path configuration.
+        provider_id: Canonical provider ID (e.g. ``"anthropic"``).
+        api_key: API key to persist.  Pass an empty string for keyless
+            providers (e.g. ``"github-copilot"``).
+        model: Override the catalog default model written to settings.yaml.
+        gh_token: For keyless providers: an optional GitHub token extracted
+            from ``gh auth token`` to write to ``keys.env`` as
+            ``GITHUB_TOKEN``.
     """
     from distro_plugin.overlay import add_include
 
@@ -415,19 +449,22 @@ def register_provider(
     result = ProviderRegistrationResult(
         provider_id=provider_id,
         provider_name=provider.name,
-        default_model=provider.default_model,
+        default_model=model if model else provider.default_model,
     )
 
     # Steps 1 and 2 propagate exceptions on failure — key/settings writes
     # are unrecoverable so we let the caller handle them.  Step 3 catches
     # OSError because overlay writes are recoverable (recorded in result).
 
-    # 1. Write key to keys.env and set in current process env
-    persist_api_key(settings, provider_id, api_key)
+    # 1. Write key to keys.env and set in current process env (keyless: skip or write gh_token)
+    if provider.needs_key:
+        persist_api_key(settings, provider_id, api_key)
+    elif gh_token:
+        _write_raw_key(settings, "GITHUB_TOKEN", gh_token)
     result.key_saved = True
 
     # 2. Add provider module config to settings.yaml
-    add_provider_config(settings, provider_id)
+    add_provider_config(settings, provider_id, model=model)
     result.settings_updated = True
 
     # 3. Add provider include to overlay bundle (recoverable)
